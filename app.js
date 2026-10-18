@@ -20,26 +20,32 @@ const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
 const STATUS = { '': 'Não visitado', regular: 'Visitado: regular', irregular: 'Visitado: irregular', naoloc: 'Não localizado' };
 
 // ---------- armazenamento criptografado (IndexedDB + AES-GCM) ----------
+// Cada criador é um registro cifrado separado: salvar uma anotação regrava só aquele criador.
+// "meta" guarda o salt e as configurações (cifradas), e serve para conferir a senha.
 function idb() {
   return new Promise((ok, erro) => {
-    const r = indexedDB.open('fiscal-passeriformes', 1);
-    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    const r = indexedDB.open('fiscal-passeriformes', 2);
+    r.onupgradeneeded = () => {
+      if (!r.result.objectStoreNames.contains('kv')) r.result.createObjectStore('kv');
+      r.result.createObjectStore('criadores');
+    };
     r.onsuccess = () => ok(r.result);
     r.onerror = () => erro(r.error);
   });
 }
-async function kv(modo, fn) {
+async function tx(loja, modo, fn) {
   const d = await idb();
   return new Promise((ok, erro) => {
-    const t = d.transaction('kv', modo);
-    const r = fn(t.objectStore('kv'));
+    const t = d.transaction(loja, modo);
+    const r = fn(t.objectStore(loja));
     t.oncomplete = () => ok(r?.result);
     t.onerror = () => erro(t.error);
   });
 }
-const lerCofre = () => kv('readonly', s => s.get('cofre'));
-const gravarCofre = v => kv('readwrite', s => s.put(v, 'cofre'));
-const apagarCofre = () => kv('readwrite', s => s.delete('cofre'));
+const apagarTudo = () => new Promise(ok => {
+  const r = indexedDB.deleteDatabase('fiscal-passeriformes');
+  r.onsuccess = r.onerror = r.onblocked = () => ok();
+});
 
 async function derivar(senha, salt) {
   const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(senha), 'PBKDF2', false, ['deriveKey']);
@@ -57,12 +63,31 @@ async function decifrar(chave, cofre) {
 }
 
 let chave = null, salt = null, db = null;
-const salvar = async () => gravarCofre(await cifrar(chave, salt, db));
-const novoDb = () => ({ v: 1, cfg: { idadeMax: 20, anosSemMov: 10 }, criadores: {} });
+const sujos = new Set(); // CPFs alterados desde o último salvamento
+async function salvar() {
+  const lote = [...sujos];
+  sujos.clear();
+  const meta = await cifrar(chave, salt, { cfg: db.cfg });
+  const regs = await Promise.all(lote.map(async cpf => [cpf, await cifrar(chave, salt, db.criadores[cpf])]));
+  await tx('criadores', 'readwrite', s => regs.forEach(([cpf, v]) => s.put(v, cpf)));
+  await tx('kv', 'readwrite', s => s.put(meta, 'meta'));
+}
+async function carregar(meta) {
+  db = { cfg: (await decifrar(chave, meta)).cfg, criadores: {} };
+  const d = await idb();
+  const pares = await new Promise((ok, erro) => {
+    const out = [], r = d.transaction('criadores').objectStore('criadores').openCursor();
+    r.onsuccess = () => { const c = r.result; if (!c) return ok(out); out.push([c.key, c.value]); c.continue(); };
+    r.onerror = () => erro(r.error);
+  });
+  for (const [cpf, v] of pares) db.criadores[cpf] = await decifrar(chave, v);
+}
 
 // ---------- tela de senha ----------
 async function telaSenha() {
-  const existe = await lerCofre();
+  const meta = await tx('kv', 'readonly', s => s.get('meta'));
+  const antigo = meta ? null : await tx('kv', 'readonly', s => s.get('cofre')); // formato da v1.0 a v1.2
+  const existe = meta || antigo;
   app.innerHTML = `<div class="card centro">
     <h1>${existe ? 'Desbloquear' : 'Criar senha'}</h1>
     <p class="muted peq">${existe ? 'Os dados ficam criptografados neste aparelho.'
@@ -83,12 +108,18 @@ async function telaSenha() {
       if (existe) {
         salt = unb64(existe.salt);
         chave = await derivar(s1, salt);
-        db = await decifrar(chave, existe);
+        if (meta) await carregar(meta);
+        else {
+          db = await decifrar(chave, antigo);
+          Object.keys(db.criadores).forEach(cpf => sujos.add(cpf));
+          await salvar();
+          await tx('kv', 'readwrite', s => s.delete('cofre'));
+        }
       } else {
         if (s1 !== $('#s2').value) throw new Error('As senhas não conferem.');
         salt = crypto.getRandomValues(new Uint8Array(16));
         chave = await derivar(s1, salt);
-        db = novoDb();
+        db = { cfg: { idadeMax: 20, anosSemMov: 10 }, criadores: {} };
         await salvar();
       }
       $('#nav').hidden = false;
@@ -100,7 +131,7 @@ async function telaSenha() {
   };
   $('#esqueci')?.addEventListener('click', async e => {
     e.preventDefault();
-    if (confirm('Apagar todos os dados deste aparelho?')) { await apagarCofre(); location.reload(); }
+    if (confirm('Apagar todos os dados deste aparelho?')) { await apagarTudo(); location.reload(); }
   });
 }
 
@@ -235,6 +266,7 @@ function telaFicha(cpf) {
   };
   $('#salvar').onclick = async () => {
     c.fisc = { status: $('#st').value, obs: $('#obs').value, atualizadoEm: agora() };
+    sujos.add(c.cpf);
     await salvar();
     $('#salvo').textContent = 'Salvo em ' + fmtDH(c.fisc.atualizadoEm);
   };
@@ -257,6 +289,7 @@ function importarPlanilha(buf) {
       bairro: l.bairro || '', endereco: l.endereco || '', cidade: l.cidade || l.municipio || '' };
     const atual = db.criadores[cpf];
     if (atual) { Object.assign(atual, base); atualizados++; } else { db.criadores[cpf] = { ...base, rel: null, fisc: null }; novos++; }
+    sujos.add(cpf);
   }
   return `${novos} criador(es) novo(s), ${atualizados} atualizado(s).`;
 }
@@ -267,6 +300,7 @@ function importarRelatorio(texto) {
   db.criadores[rel.cpf] ||= { cpf: rel.cpf, registro: d.cadastro, nome: d.nome, bairro: d.bairro,
     endereco: d.endereco, cidade: d.municipio.replace(/\/RS$/i, ''), rel: null, fisc: null };
   db.criadores[rel.cpf].rel = { importadoEm: agora(), criador: d, secoes: rel.secoes };
+  sujos.add(rel.cpf);
   return db.criadores[rel.cpf].nome;
 }
 
@@ -336,9 +370,9 @@ function mesclar(outro) {
   let n = 0;
   for (const [cpf, b] of Object.entries(outro.criadores || {})) {
     const a = db.criadores[cpf];
-    if (!a) { db.criadores[cpf] = b; n++; continue; }
-    if (b.rel && (!a.rel || b.rel.importadoEm > a.rel.importadoEm)) { a.rel = b.rel; n++; }
-    if (b.fisc && (!a.fisc || b.fisc.atualizadoEm > a.fisc.atualizadoEm)) { a.fisc = b.fisc; n++; }
+    if (!a) { db.criadores[cpf] = b; sujos.add(cpf); n++; continue; }
+    if (b.rel && (!a.rel || b.rel.importadoEm > a.rel.importadoEm)) { a.rel = b.rel; sujos.add(cpf); n++; }
+    if (b.fisc && (!a.fisc || b.fisc.atualizadoEm > a.fisc.atualizadoEm)) { a.fisc = b.fisc; sujos.add(cpf); n++; }
   }
   return n;
 }
@@ -357,6 +391,7 @@ function telaDados() {
 
     <div class="card"><h2>2. Relatórios gerais do SISPASS</h2>
       <p class="muted peq">Selecione um ou vários arquivos .txt, ou cole o texto do relatório abaixo. O criador é identificado pelo CPF.</p>
+      <div id="fila" class="card" style="background:var(--bg)"></div>
       <input type="file" id="f-rel" accept=".txt,text/plain" multiple>
       <label for="t-rel">Ou cole o relatório</label>
       <textarea id="t-rel" placeholder="Cole aqui o relatório geral copiado do SISPASS"></textarea>
@@ -383,6 +418,20 @@ function telaDados() {
       <p class="muted peq">Remove todos os dados deste aparelho. Exporte um backup antes.</p>
       <button class="perigo" id="b-apagar" type="button">Apagar todos os dados</button></div>`;
 
+  const desenharFila = () => {
+    const pend = Object.values(db.criadores).filter(c => !c.rel && (!filtro.cidade || c.cidade === filtro.cidade))
+      .sort((a, b) => a.cidade.localeCompare(b.cidade, 'pt-BR') || a.nome.localeCompare(b.nome, 'pt-BR'));
+    const c = pend[0];
+    $('#fila').innerHTML = !c ? `<b>Nenhum criador sem relatório${filtro.cidade ? ' em ' + esc(filtro.cidade) : ''}.</b>` : `
+      <span class="muted peq">Próximo sem relatório (faltam ${pend.length}${filtro.cidade ? ' em ' + esc(filtro.cidade) : ''})</span>
+      <div class="nome"><b>${esc(c.nome)}</b></div>
+      <div class="linha"><span>${esc(fmtCpf(c.cpf))} · ${esc(c.cidade)}</span>
+        <button class="sec" id="b-fila-cpf" type="button">Copiar CPF</button></div>`;
+    $('#b-fila-cpf')?.addEventListener('click', async e => {
+      try { await navigator.clipboard.writeText(c.cpf); e.target.textContent = 'CPF copiado'; } catch { e.target.textContent = c.cpf; }
+    });
+  };
+  desenharFila();
   const msg = (id, t, erro) => { const m = $(id); m.textContent = t; m.className = 'msg' + (erro ? ' erro' : ''); };
 
   $('#f-planilha').onchange = async e => {
@@ -396,11 +445,12 @@ function telaDados() {
       try { ok.push(importarRelatorio(await lerTexto(f))); } catch (err) { falhas.push(`${f.name}: ${err.message}`); }
     }
     if (ok.length) await salvar();
+    desenharFila();
     msg('#m-rel', `${ok.length} relatório(s) importado(s).${falhas.length ? ' Falhas: ' + falhas.join(' | ') : ''}`, falhas.length && !ok.length);
     e.target.value = '';
   };
   $('#b-colar').onclick = async () => {
-    try { const nome = importarRelatorio($('#t-rel').value); await salvar(); $('#t-rel').value = ''; msg('#m-rel', `Relatório de ${nome} importado.`); }
+    try { const nome = importarRelatorio($('#t-rel').value); await salvar(); $('#t-rel').value = ''; msg('#m-rel', `Relatório de ${nome} importado.`); desenharFila(); }
     catch (err) { msg('#m-rel', err.message, true); }
   };
   $('#b-xlsx').onclick = () => {
@@ -435,7 +485,7 @@ function telaDados() {
     $('#m-cfg').textContent = 'Salvo.';
   };
   $('#b-apagar').onclick = async () => {
-    if (confirm('Apagar todos os dados deste aparelho?')) { await apagarCofre(); location.reload(); }
+    if (confirm('Apagar todos os dados deste aparelho?')) { await apagarTudo(); location.reload(); }
   };
 }
 
