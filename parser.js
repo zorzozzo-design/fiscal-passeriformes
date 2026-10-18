@@ -9,6 +9,13 @@ function parseData(s) {
   return m ? new Date(+m[3], +m[2] - 1, +m[1]) : null;
 }
 
+// Nome de pessoa: inicial maiúscula em cada palavra (inclusive após apóstrofo e hífen), partículas em minúscula (exceto a primeira palavra).
+const PARTICULAS = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'di', 'du', 'del', 'van', 'von']);
+function nomeProprio(s) {
+  return String(s ?? '').toLowerCase().trim().split(/\s+/).map((w, i) => i && PARTICULAS.has(w) ? w
+    : w.replace(/(^|['\-])(\p{L})/gu, (_, sep, l) => sep + l.toUpperCase())).join(' ');
+}
+
 const VAZIO = /^(nenhum registro encontrado\.?|erro)$/i;
 
 function parseRelatorio(texto) {
@@ -206,5 +213,5 @@ function resumo(rel, cfg, hoje = new Date()) {
   return { ativas: ativas.length, total: plantel.length, ocorrencias, ultimaLicenca, ultimaOperacao, alertas };
 }
 
-globalThis.Parser = { parseRelatorio, serializar, resumo, soDigitos, parseData, vinculos, chaveAnilha, normNome, obitos, idadesPorEspecie, indicios };
+globalThis.Parser = { nomeProprio, parseRelatorio, serializar, resumo, soDigitos, parseData, vinculos, chaveAnilha, normNome, obitos, idadesPorEspecie, indicios };
 })();

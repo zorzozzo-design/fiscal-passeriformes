@@ -1,4 +1,4 @@
-const { parseRelatorio, serializar, resumo, soDigitos, vinculos, chaveAnilha, normNome, obitos, idadesPorEspecie } = window.Parser;
+const { nomeProprio, parseRelatorio, serializar, resumo, soDigitos, vinculos, chaveAnilha, normNome, obitos, idadesPorEspecie } = window.Parser;
 
 // ---------- utilitários ----------
 const $ = s => document.querySelector(s);
@@ -19,7 +19,6 @@ const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
 
 const INDICIOS = { zerado: 'plantel zerado com movimentação', saidaRapida: 'ave recebida e logo baixada', semDestino: 'ave recebida sem destino',
   fugas: 'fugas repetidas', movAlta: 'movimentação alta', semLicenca: 'operação sem licença' };
-const STATUS = { '': 'Não visitado', regular: 'Visitado: regular', irregular: 'Visitado: irregular', naoloc: 'Não localizado' };
 
 // ---------- armazenamento criptografado (IndexedDB + AES-GCM) ----------
 // Cada criador é um registro cifrado separado: salvar uma anotação regrava só aquele criador.
@@ -67,6 +66,7 @@ async function decifrar(chave, cofre) {
 let chave = null, salt = null, db = null;
 const sujos = new Set(); // CPFs alterados desde o último salvamento
 async function salvar() {
+  versao++;
   const lote = [...sujos];
   sujos.clear();
   const meta = await cifrar(chave, salt, { cfg: db.cfg });
@@ -83,6 +83,8 @@ async function carregar(meta) {
     r.onerror = () => erro(r.error);
   });
   for (const [cpf, v] of pares) db.criadores[cpf] = await decifrar(chave, v);
+  for (const c of Object.values(db.criadores)) if (migrar(c)) sujos.add(c.cpf);
+  if (sujos.size) await salvar();
 }
 
 // ---------- tela de senha ----------
@@ -113,6 +115,7 @@ async function telaSenha() {
         if (meta) await carregar(meta);
         else {
           db = await decifrar(chave, antigo);
+          Object.values(db.criadores).forEach(migrar);
           Object.keys(db.criadores).forEach(cpf => sujos.add(cpf));
           await salvar();
           await tx('kv', 'readwrite', s => s.delete('cofre'));
@@ -138,6 +141,31 @@ async function telaSenha() {
 }
 
 // ---------- lista ----------
+const FILTROS = [['', 'Todos'], ['abertos', 'Com pendência em aberto'], ['ameacadas', 'Com ave ameaçada'], ['naofisc', 'Não fiscalizados no período'],
+  ['fisc', 'Fiscalizados no período'], ['irregular', 'Última vistoria irregular'], ['naoloc', 'Não localizados'], ['suspensa', 'Licença suspensa por você'],
+  ['ctf', 'CTF cancelado'], ['licenca', 'Licença do período irregular'], ['semrel', 'Sem relatório'], ['ocorr', 'Com fuga/roubo/óbito'],
+  ['vinculo', 'Com e-mail/telefone compartilhado'], ['F', 'Titular mulher'], ['M', 'Titular homem'], ['fachada', 'Titular não maneja as aves'],
+  ...Object.entries(INDICIOS).filter(([k]) => !['zerado', 'fugas'].includes(k)).map(([k, t]) => ['ind:' + k, 'Indício: ' + t])];
+function passaFiltro(c, f) {
+  const e = estado(c);
+  switch (f) {
+    case 'abertos': return e.abertos.length > 0;
+    case 'ameacadas': return e.ameacadas.length > 0;
+    case 'naofisc': return !e.fiscalizado;
+    case 'fisc': return e.fiscalizado;
+    case 'irregular': return e.ultima?.resultado === 'irregular';
+    case 'naoloc': return e.ultima?.resultado === 'naoloc';
+    case 'suspensa': return Object.keys(c.acoes || {}).some(k => k.startsWith('suspender:'));
+    case 'ctf': return e.ctf?.status === 'cancelado';
+    case 'licenca': return !!e.lic && e.lic.status !== 'regular';
+    case 'semrel': return !c.rel;
+    case 'ocorr': return !!e.r?.ocorrencias.length;
+    case 'vinculo': return e.vinc.email.length > 0 || e.vinc.fone.length > 0;
+    case 'F': case 'M': return e.sexo.valor === f;
+    case 'fachada': return e.vistorias.some(v => v.maneja === 'outro');
+    default: return f.startsWith('ind:') ? e.itens.some(i => i.id === f && i.aberto) : f.startsWith('item:') ? e.abertos.some(i => chaveItem(i) === f.slice(5)) : true;
+  }
+}
 const filtro = { q: '', cidade: '', status: '' };
 let rolagem = 0;
 
@@ -159,8 +187,7 @@ function telaLista() {
       <select id="cidade"><option value="">Todas as cidades</option>
         ${cidades.map(c => `<option ${c === filtro.cidade ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
       <select id="status">
-        ${[['', 'Todos'], ['semrel', 'Sem relatório'], ['alerta', 'Com alerta ou indício'], ['ocorr', 'Com fuga/roubo/óbito'], ...Object.entries(INDICIOS).map(([k, t]) => ['ind:' + k, 'Indício: ' + t]),
-           ['pendente', 'Não visitados'], ['visitado', 'Visitados']]
+        ${(filtro.status && !FILTROS.some(([v]) => v === filtro.status) ? [[filtro.status, 'Pendência: ' + (ROTULO_ITEM[filtro.status.slice(5)] || filtro.status)], ...FILTROS] : FILTROS)
           .map(([v, t]) => `<option value="${v}" ${v === filtro.status ? 'selected' : ''}>${t}</option>`).join('')}
       </select>
     </div>
@@ -173,13 +200,7 @@ function telaLista() {
       .filter(a => /^ativ/i.test(a['Situação'] || '') && norm(`${a['Nome Popular']} ${a['Espécie']}`).includes(q));
     const vis = todos.filter(c => {
       if (filtro.cidade && c.cidade !== filtro.cidade) return false;
-      const r = resumoDe(c);
-      if (filtro.status === 'semrel' && c.rel) return false;
-      if (filtro.status === 'alerta' && !r?.alertas.length) return false;
-      if (filtro.status.startsWith('ind:') && !r?.alertas.some(a => a.tipo === filtro.status.slice(4))) return false;
-      if (filtro.status === 'ocorr' && !r?.ocorrencias.length) return false;
-      if (filtro.status === 'pendente' && c.fisc?.status) return false;
-      if (filtro.status === 'visitado' && !c.fisc?.status) return false;
+      if (filtro.status && !passaFiltro(c, filtro.status)) return false;
       if (!q) return true;
       if (qd.length >= 3 && (c.cpf.includes(qd) || String(c.registro).includes(qd))) return true;
       const anilhas = c.rel?.secoes.Plantel?.map(a => a['Código anilha']).join(' ') || '';
@@ -189,17 +210,18 @@ function telaLista() {
     $('#cont').innerHTML = `${vis.length} de ${todos.length} criadores` + (totalAves
       ? `<br><b>${comAve.length} criador(es) com ${totalAves} ave(s) ativa(s) de "${esc(filtro.q)}"</b> <span class="muted">(só entre os ${todos.filter(c => c.rel).length} com relatório importado)</span>` : '');
     $('#lista').innerHTML = vis.map(c => {
-      const r = resumoDe(c);
+      const e = estado(c), r = e.r;
       const porEspecie = {};
       for (const a of avesDe(c)) porEspecie[a['Nome Popular']] = (porEspecie[a['Nome Popular']] || 0) + 1;
       const tags = [
         ...Object.entries(porEspecie).map(([e, n]) => `<span class="tag ok"><b>${n}× ${esc(e)}</b></span>`),
         r ? `<span class="tag">${r.ativas} ave(s) ativa(s)</span>` : '<span class="tag aviso">sem relatório</span>',
-        r?.alertas.length ? `<span class="tag alerta">${r.alertas.length} alerta(s)</span>` : '',
-        r?.ocorrencias.length ? `<span class="tag alerta">${r.ocorrencias.length} fuga/roubo/óbito</span>` : '',
-        c.fisc?.status ? `<span class="tag ${c.fisc.status === 'irregular' ? 'alerta' : 'ok'}">${STATUS[c.fisc.status]}</span>` : '',
+        e.ameacadas.length ? `<span class="tag ameaca">${e.ameacadas.length} ameaçada(s)</span>` : '',
+        e.abertos.length ? `<span class="tag alerta">${e.abertos.length} pendência(s)</span>` : '',
+        e.ctf?.status === 'cancelado' ? '<span class="tag alerta">CTF cancelado</span>' : '',
+        e.ultima ? `<span class="tag ${e.ultima.resultado === 'irregular' ? 'alerta' : 'ok'}">Vistoria ${Normas.fmt(new Date(e.ultima.data + 'T12:00'))}: ${RESULTADO[e.ultima.resultado]}</span>` : '',
       ].join('');
-      return `<li><a href="#/c/${c.cpf}"><div class="nome">${esc(c.nome)}</div>
+      return `<li><a href="#/c/${c.cpf}" class="${e.ameacadas.length ? 'ameacado' : ''}"><div class="nome">${esc(c.nome)}</div>
         <div class="muted peq">${esc(fmtCpf(c.cpf))} · Reg. ${esc(c.registro)} · ${esc(c.cidade)}${c.bairro ? ' · ' + esc(c.bairro) : ''}</div>
         <div>${tags}</div></a></li>`;
     }).join('');
@@ -226,15 +248,16 @@ let idxNomes = {};
 function linkNome(nome) {
   if (!nome) return '';
   const achados = idxNomes[normNome(nome)] || [];
-  if (!achados.length) return `${esc(nome)} <span class="tag">fora da base</span>`;
-  return achados.map(c => `<a href="#/c/${c.cpf}">${esc(nome)}</a>${achados.length > 1 ? ` <span class="muted peq">(${esc(fmtCpf(c.cpf))})</span>` : ''}`).join('<br>');
+  if (!achados.length) return `${esc(nomeProprio(nome))} <span class="tag">fora da base</span>`;
+  return achados.map(c => `<a href="#/c/${c.cpf}">${esc(c.nome)}</a>${achados.length > 1 ? ` <span class="muted peq">(${esc(fmtCpf(c.cpf))})</span>` : ''}`).join('<br>');
 }
 const linkAnilha = a => a ? `<a href="#/anilha/${encodeURIComponent(chaveAnilha(a))}">${esc(a)}</a>` : '';
 
 function tabela(rows, cols) {
   if (!rows?.length) return '<p class="muted peq">Nenhum registro.</p>';
   cols ||= [...new Set(rows.flatMap(Object.keys))].filter(k => !k.startsWith('_'));
-  const celula = (r, c) => COLS_NOME.includes(c) ? linkNome(r[c]) : COLS_ANILHA.includes(c) ? linkAnilha(r[c]) : esc(r[c]);
+  const celula = (r, c) => c === 'Ameaça' ? (r[c] ? `<span class="tag ameaca">${esc(r[c])}</span>` : '')
+    : COLS_NOME.includes(c) ? linkNome(r[c]) : COLS_ANILHA.includes(c) ? linkAnilha(r[c]) : esc(r[c]);
   return `<div class="tabela"><table><thead><tr>${cols.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>
     ${rows.map(r => `<tr class="${/^inativ/i.test(r['Situação'] || '') ? 'inativa' : ''}">${cols.map(c => `<td>${celula(r, c)}</td>`).join('')}</tr>`).join('')}
     </tbody></table></div>`;
@@ -298,6 +321,165 @@ function telaAnilha(chave) {
       </tbody></table></div>`}</div>`;
   window.scrollTo(0, 0);
 }
+
+// ---------- fiscalização: estado derivado de cada criador ----------
+// Índices da base inteira (nascimento por anilha, endereço, e-mail, telefone e IP compartilhados), refeitos a cada salvamento.
+let versao = 0, cacheIdx = null;
+const estCache = new Map();
+const RESULTADO = { regular: 'Regular', irregular: 'Irregular', naoloc: 'Não localizado' };
+const GRAVES = [ // IN SEMA 04/2022, art. 62, §2º
+  ['I', 'Abuso de licença'], ['II', 'Obtenção de vantagem pecuniária'], ['III', 'Animais silvestres sem origem legal (aves sem anilha)'],
+  ['IV', 'Abuso e maus-tratos (art. 41)'], ['V', 'Soltura de animais durante a abordagem'], ['VI', 'Tentativa comprovada de burlar o sistema'],
+  ['VII', 'Falsificação de documentos, informações ou anilhas'], ['VIII', 'Impedir ou dificultar a fiscalização']];
+const DESTINOS = ['SISPASS', 'SEMA', 'Notificação', 'Campo'];
+const DESTINO_TXT = { SISPASS: 'No SISPASS (você)', SEMA: 'Comunicar a SEMA/DIFAU', 'Notificação': 'Notificar o criador', Campo: 'Conferir em campo' };
+
+function chaveEndereco(c) {
+  const e = norm(`${c.endereco} ${c.cidade}`).replace(/\b(rua|r|av|avenida|travessa|tv|n|no|nro|numero|casa)\b/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
+  return /\d/.test(e) ? e : '';
+}
+function indices() {
+  if (cacheIdx?.v === versao) return cacheIdx;
+  const nasc = {}, grupos = { endereco: {}, email: {}, fone: {}, ip: {} };
+  const por = (tipo, chave, c) => { if (chave) (grupos[tipo][chave] ||= new Set()).add(c.cpf); };
+  for (const c of Object.values(db.criadores)) {
+    por('endereco', chaveEndereco(c), c);
+    if (!c.rel) continue;
+    for (const a of c.rel.secoes.Plantel || []) { const k = chaveAnilha(a['Código anilha']); if (k && !nasc[k] && Parser.parseData(a.Nascimento)) nasc[k] = a; }
+    const alt = c.rel.secoes['Alterações de Cadastro'] || [];
+    for (const e of [c.rel.criador.email, ...alt.map(r => r['E-mail'])]) if (String(e).includes('@')) por('email', String(e).trim().toLowerCase(), c);
+    for (const f of [c.rel.criador.fone, ...alt.map(r => r.Telefone)]) { const d = soDigitos(f).slice(-8); if (d.length === 8 && !/^0+$/.test(d)) por('fone', d, c); }
+    for (const r of c.rel.secoes['Acesso ao Sispass'] || []) for (const ip of String(r['Endereco IP Cliente'] || '').split(',')) por('ip', ip.trim(), c);
+  }
+  for (const g of Object.values(grupos)) for (const k of Object.keys(g)) if (g[k].size < 2) delete g[k];
+  return (cacheIdx = { v: versao, nasc, grupos });
+}
+function vinculosCadastro(cpf) {
+  const { grupos } = indices(), out = {};
+  for (const [tipo, g] of Object.entries(grupos)) out[tipo] = Object.entries(g).filter(([, s]) => s.has(cpf)).map(([chave, s]) => ({ chave, outros: [...s].filter(x => x !== cpf) }));
+  return out;
+}
+
+// Sexo do titular: informado na ficha ou estimado pelo primeiro nome (sempre marcado como estimativa).
+function sexoEstimado(nome) {
+  const p = norm(String(nome).split(/\s+/)[0]);
+  if (!p) return '';
+  if (/(a|ane|ene|ine|ice|ete|ilde|ele|ise|ide|iz|ith|uth|ani|arli|ilia|ely|elly)$/.test(p) && !/^(luca|nicola|joshua|jonata|elias|isaias|matias|tobias|josue|davi)$/.test(p)) return 'F';
+  return 'M';
+}
+const sexoDe = c => c.sexo ? { valor: c.sexo, estimado: false } : { valor: sexoEstimado(c.nome), estimado: true };
+
+function estado(c) {
+  if (estCache.get(c.cpf)?.v === versao) return estCache.get(c.cpf);
+  const hoje = new Date(), per = Normas.periodo(hoje), ix = indices(), vinc = vinculosCadastro(c.cpf);
+  const nomes = cpfs => cpfs.map(x => db.criadores[x]?.nome).filter(Boolean);
+  const itens = c.rel ? Normas.verificar(c.rel, { hoje, cfg: db.cfg, nascimentos: ix.nasc, outrosNoEndereco: nomes(vinc.endereco.flatMap(v => v.outros)) }) : [];
+  const vinculo = (id, tipo, rotulo, base) => {
+    if (!vinc[tipo].length) return;
+    itens.push({ id, grupo: 'campo', tipo: 'indicio', titulo: rotulo, destino: 'Campo', base, data: '',
+      texto: vinc[tipo].map(v => `${v.chave}: também em ${nomes(v.outros).join(', ')}`).join('; '),
+      providencia: 'Verificar se associação ou terceiro opera o SISPASS deste criador (senha pessoal; associação só com procuração específica).' });
+  };
+  vinculo('vincEmail', 'email', 'E-mail compartilhado com outros criadores', 'IN SEMA 04/2022, art. 15, §1º; IN IBAMA 10/2011, art. 60');
+  vinculo('vincFone', 'fone', 'Telefone compartilhado com outros criadores', 'IN SEMA 04/2022, art. 15, §1º');
+  vinculo('vincIp', 'ip', 'Mesmo IP de acesso ao SISPASS que outros criadores', 'IN SEMA 04/2022, art. 15, §1º (indício fraco: IP pode ser da operadora)');
+  const vist = [...(c.vistorias || [])].sort((a, b) => b.data.localeCompare(a.data));
+  const lic = c.rel ? Normas.situacaoLicenca(c.rel, hoje) : null;
+  for (const v of vist) {
+    const dt = new Date(v.data + 'T12:00');
+    if (v.graves?.length) itens.push({ id: `suspender:${v.id}`, grupo: 'sispass', tipo: 'nc', destino: 'SISPASS', data: Normas.fmt(dt),
+      titulo: `Suspender licença (vistoria de ${Normas.fmt(dt)})`, base: 'IN SEMA 04/2022, art. 62',
+      texto: Normas.textoSuspensao(dt, v.graves.map(g => GRAVES.find(x => x[0] === g)[1]), v.graves.map(g => `art. 62, §2º, ${g}`)),
+      providencia: `No SISPASS: alterar a licença${lic?.numero ? ' nº ' + lic.numero : ' do período'} de regular para suspensa e colar a observação acima.` });
+    if (v.maneja === 'outro') itens.push({ id: `fachada:${v.id}`, grupo: 'sispass', tipo: 'indicio', destino: 'Campo', data: Normas.fmt(dt),
+      titulo: 'Titular não é quem maneja as aves', base: 'IN SEMA 04/2022, arts. 11 e 62, §2º, I e VI',
+      texto: `Na vistoria de ${Normas.fmt(dt)}, as aves eram manejadas por ${v.manejaNome || 'outra pessoa'}.`,
+      providencia: 'Apurar se o cadastro está em nome de terceiro para burlar limites ou impedimentos.' });
+  }
+  for (const i of itens) {
+    const fato = i.data ? Parser.parseData(i.data) : null;
+    const cobre = v => !fato || new Date(v.data + 'T12:00') >= fato;
+    i.irregularEm = vist.find(v => v.irregular?.includes(i.id) && cobre(v))?.data;
+    i.verificadoEm = i.grupo === 'campo' && !i.irregularEm ? vist.find(v => v.ok?.includes(i.id) && cobre(v))?.data : undefined;
+    i.feito = c.acoes?.[i.id];
+    i.aberto = !i.verificadoEm && !i.feito;
+  }
+  const e = { v: versao, itens, abertos: itens.filter(i => i.aberto), r: c.rel ? resumo(c.rel, db.cfg) : null,
+    ctf: c.rel ? Normas.situacaoCTF(c.rel) : null, lic, ameacadas: c.rel ? Normas.ameacadasDoPlantel(c.rel) : [],
+    ultima: vist[0], vistorias: vist, sexo: sexoDe(c), vinc,
+    fiscalizado: vist.some(v => v.resultado !== 'naoloc' && new Date(v.data + 'T12:00') >= per.inicio) };
+  estCache.set(c.cpf, e);
+  return e;
+}
+
+// Dados antigos (até a v1.7) guardavam só a "situação" da fiscalização; vira uma vistoria com a data em que foi salva.
+function migrar(c) {
+  const nome = nomeProprio(c.nome);
+  if (nome !== c.nome) { c.nome = nome; if (!c.fisc) return true; }
+  if (!c.fisc) return false;
+  if (c.fisc.status) (c.vistorias ||= []).push({ id: 'mig-' + c.cpf, data: (c.fisc.atualizadoEm || agora()).slice(0, 10), resultado: c.fisc.status,
+    obs: c.fisc.obs || '', ok: [], irregular: [], graves: [] });
+  else if (c.fisc.obs) c.notas = c.fisc.obs;
+  delete c.fisc;
+  return true;
+}
+
+const chip = (txt, cls = '') => `<span class="tag ${cls}">${esc(txt)}</span>`;
+const chipAmeaca = a => chip(`Ameaçada: ${[a.rs && 'RS ' + a.rs, a.br && 'BR ' + a.br].filter(Boolean).join(' · ')}`, 'ameaca');
+
+function htmlItem(c, i, comCriador = false) {
+  const estadoTxt = i.feito ? `Providência feita em ${Normas.fmt(new Date(i.feito.data + 'T12:00'))}${i.feito.obs ? ': ' + esc(i.feito.obs) : ''}`
+    : i.verificadoEm ? `Verificado em vistoria de ${Normas.fmt(new Date(i.verificadoEm + 'T12:00'))}`
+    : i.irregularEm ? `Constatado irregular em ${Normas.fmt(new Date(i.irregularEm + 'T12:00'))}` : '';
+  return `<div class="item ${i.tipo}" data-id="${esc(i.id)}" data-cpf="${c.cpf}">
+    <div class="linha"><span class="tag dest">${esc(i.destino)}</span>${chip(i.tipo === 'nc' ? 'não conformidade' : i.tipo === 'indicio' ? 'indício' : 'conferir', i.tipo === 'nc' ? 'alerta' : 'aviso')}
+      ${comCriador ? `<a href="#/c/${c.cpf}"><b>${esc(c.nome)}</b></a> <span class="muted peq">${esc(c.cidade)}</span>` : ''}</div>
+    <b>${esc(i.titulo)}</b><div class="peq">${esc(i.texto)}</div>
+    <div class="peq muted">${esc(i.base)}${i.data ? ' · fato em ' + esc(i.data) : ''}</div>
+    <div class="peq"><b>Providência:</b> ${esc(i.providencia)}</div>
+    ${i.destino === 'SISPASS' && i.id.startsWith('suspender:') ? `<button class="sec b-copiar-txt" type="button" data-txt="${esc(i.texto)}">Copiar observação</button>` : ''}
+    ${estadoTxt ? `<div class="peq ok-txt">${estadoTxt}</div>` : ''}
+    ${i.aberto ? `<button class="sec b-feito" type="button">${i.id.startsWith('suspender:') ? 'Licença suspensa no SISPASS' : 'Marcar providência feita'}</button>`
+      : i.feito ? '<button class="sec b-desfazer" type="button">Desfazer</button>' : ''}
+  </div>`;
+}
+// Botões dos itens (ficha e pendências): marcam/desfazem a providência.
+function ligarItens(depois) {
+  for (const b of document.querySelectorAll('.b-copiar-txt')) b.onclick = async () => {
+    try { await navigator.clipboard.writeText(b.dataset.txt); b.textContent = 'Copiado'; } catch { b.textContent = 'Selecione e copie o texto acima'; }
+  };
+  for (const b of document.querySelectorAll('.b-feito, .b-desfazer')) b.onclick = async () => {
+    const el = b.closest('.item'), c = db.criadores[el.dataset.cpf], id = el.dataset.id;
+    c.acoes ||= {};
+    if (b.classList.contains('b-desfazer')) delete c.acoes[id];
+    else c.acoes[id] = { data: new Date().toISOString().slice(0, 10), obs: prompt('Observação (opcional):') || '' };
+    sujos.add(c.cpf);
+    await salvar();
+    depois();
+  };
+}
+
+function formVistoria(c, e) {
+  const campo = e.itens.filter(i => i.grupo === 'campo' && i.aberto);
+  return `<div class="card"><h2>Registrar vistoria</h2>
+    <div class="grade">
+      <div><label for="v-data">Data</label><input id="v-data" type="date" value="${new Date().toISOString().slice(0, 10)}"></div>
+      <div><label for="v-res">Resultado</label><select id="v-res">${Object.entries(RESULTADO).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></div>
+      <div><label for="v-maneja">Quem maneja as aves</label><select id="v-maneja"><option value="titular">O titular</option><option value="outro">Outra pessoa</option><option value="">Não verificado</option></select></div>
+      <div><label for="v-maneja-nome">Se outra pessoa: nome e vínculo</label><input id="v-maneja-nome" placeholder="Ex.: marido, João da Silva"></div>
+    </div>
+    <label for="v-end">Endereço conferido</label><input id="v-end" value="${esc(c.endereco)}">
+    ${campo.length ? `<h2 style="margin-top:12px">Itens a conferir (${campo.length})</h2><p class="muted peq">Já marcados como verificados. Mude só o que constatou irregular ou não conferiu.</p>
+      ${campo.map(i => `<div class="conf"><b>${esc(i.titulo)}</b><div class="peq muted">${esc(i.texto)}</div>
+        <select class="v-item" data-id="${esc(i.id)}"><option value="ok">Verificado, regular</option><option value="irregular">Irregular</option><option value="">Não conferido</option></select></div>`).join('')}` : ''}
+    <h2 style="margin-top:12px">Infração grave constatada (art. 62, §2º)</h2>
+    <p class="muted peq">Se marcar, o app gera o texto de suspensão da licença para o SISPASS.</p>
+    ${GRAVES.map(([k, t]) => `<label class="chk"><input type="checkbox" class="v-grave" value="${k}"> ${k}: ${esc(t)}</label>`).join('')}
+    <label for="v-obs">Observações</label><textarea id="v-obs"></textarea>
+    <p><button id="b-vistoria" type="button">Salvar vistoria</button> <span id="m-vist" class="msg"></span></p>
+  </div>`;
+}
+
 const COLS_PLANTEL = ['Situação', 'Nome Popular', 'Espécie', 'Sexo', 'Nascimento', 'Código anilha', 'Diâmetro anilha', 'Marcação', 'ULTIMA_OPERACAO', 'DATA_OPERACAO'];
 const PRINCIPAIS = ['Dados do Criador', 'Plantel', 'Histórico de Operações', 'Transferências Recebidas', 'Transferências Solicitadas'];
 
@@ -305,36 +487,69 @@ function telaFicha(cpf) {
   const c = db.criadores[cpf];
   if (!c) { app.innerHTML = '<div class="card">Criador não encontrado. <a href="#/">Voltar</a></div>'; return; }
   idxNomes = indiceNomes();
-  const r = resumoDe(c);
+  const e = estado(c), r = e.r;
   const end = [c.endereco, c.bairro, c.cidade, 'RS'].filter(Boolean).join(', ');
   const outras = c.rel ? Object.entries(c.rel.secoes).filter(([t]) => !PRINCIPAIS.includes(t)) : [];
+  const ameacaDe = {};
+  for (const a of e.ameacadas) ameacaDe[a.anilha] = [a.rs && 'RS ' + a.rs, a.br && 'BR ' + a.br].filter(Boolean).join(' · ');
+  const plantel = (c.rel?.secoes.Plantel || []).map(a => ({ ...a, 'Ameaça': ameacaDe[a['Código anilha']] || '' }));
+  const sit = (rot, val, cls) => `<div class="sit ${cls}"><span>${rot}</span>${val}</div>`;
+  const licCls = !e.lic ? '' : e.lic.status === 'regular' ? 'bom' : 'ruim';
+  const abertos = e.abertos, resolvidos = e.itens.filter(i => !i.aberto);
+  const vincTxt = Object.entries({ email: 'E-mail', fone: 'Telefone', ip: 'IP de acesso', endereco: 'Endereço' })
+    .flatMap(([t, rot]) => e.vinc[t].map(v => `<div class="peq"><b>${rot} ${esc(v.chave)}</b>: ${v.outros.map(x => `<a href="#/c/${x}">${esc(db.criadores[x]?.nome)}</a>`).join(', ')}</div>`)).join('');
   app.innerHTML = `
     <p class="linha"><a href="#/">← Criadores</a> <a href="javascript:history.back()">← Voltar</a></p>
-    <div class="card">
+    <div class="card ${e.ameacadas.length ? 'ameacado' : ''}">
       <h1>${esc(c.nome)}</h1>
-      <div class="grade">
+      ${e.ameacadas.length ? `<p>${chip(`${e.ameacadas.length} ave(s) de espécie ameaçada`, 'ameaca')}</p>` : ''}
+      <div class="sits">
+        ${sit('CTF', e.ctf ? esc(e.ctf.status) : '—', e.ctf ? (e.ctf.status === 'ativo' ? 'bom' : 'ruim') : '')}
+        ${sit(`Licença ${e.lic?.periodo || ''}`, e.lic ? esc(e.lic.status) + (e.lic.numero ? ` <span class="peq">nº ${esc(e.lic.numero)}</span>` : '') : '—', licCls)}
+        ${sit('Última vistoria', e.ultima ? `${Normas.fmt(new Date(e.ultima.data + 'T12:00'))} <span class="peq">${RESULTADO[e.ultima.resultado]}</span>` : 'nunca', e.ultima ? (e.ultima.resultado === 'irregular' ? 'ruim' : 'bom') : '')}
+        ${sit('Pendências abertas', abertos.length, abertos.length ? 'ruim' : 'bom')}
+        ${c.acoes && Object.keys(c.acoes).some(k => k.startsWith('suspender:')) ? sit('Licença', 'suspensa por você', 'ruim') : ''}
+      </div>
+      <div class="grade" style="margin-top:10px">
         <div><span>CPF</span>${esc(fmtCpf(c.cpf))}</div>
         <div><span>Registro</span>${esc(c.registro)}</div>
         <div><span>Cidade</span>${esc(c.cidade)}</div>
         <div><span>Bairro</span>${esc(c.bairro)}</div>
+        <div><label for="sexo" style="margin:0;font-weight:400;font-size:.8rem" class="muted">Sexo do titular${e.sexo.estimado ? ' (estimado pelo nome)' : ''}</label>
+          <select id="sexo"><option value="">Estimado: ${e.sexo.valor === 'F' ? 'feminino' : 'masculino'}</option>
+            <option value="F" ${c.sexo === 'F' ? 'selected' : ''}>Feminino (confirmado)</option><option value="M" ${c.sexo === 'M' ? 'selected' : ''}>Masculino (confirmado)</option></select></div>
       </div>
       <p><span class="muted peq">Endereço</span><br>${esc(c.endereco)}</p>
       ${c.rel && norm(c.rel.criador.endereco) !== norm(c.endereco) ? `<p class="peq"><span class="muted">Endereço no SISPASS:</span> ${esc(c.rel.criador.endereco)}, ${esc(c.rel.criador.bairro)}, ${esc(c.rel.criador.municipio)}</p>` : ''}
+      ${c.rel?.criador.email ? `<p class="peq"><span class="muted">E-mail no SISPASS:</span> ${esc(c.rel.criador.email)}</p>` : ''}
       <div class="linha">
         <a class="btn sec" target="_blank" rel="noopener noreferrer" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(end)}">Abrir no mapa</a>
         <button class="sec" id="copiar" type="button">Copiar CPF</button>
       </div>
     </div>
 
-    <div class="card">
-      <h2>Fiscalização</h2>
-      <label for="st">Situação</label>
-      <select id="st">${Object.entries(STATUS).map(([v, t]) => `<option value="${v}" ${v === (c.fisc?.status || '') ? 'selected' : ''}>${t}</option>`).join('')}</select>
-      <label for="obs">Observações</label>
-      <textarea id="obs">${esc(c.fisc?.obs)}</textarea>
-      <div class="linha" style="margin-top:8px"><button id="salvar" type="button">Salvar</button>
-        <span id="salvo" class="muted peq">${c.fisc?.atualizadoEm ? 'Atualizado em ' + fmtDH(c.fisc.atualizadoEm) : ''}</span></div>
+    ${e.ameacadas.length ? `<div class="card ameacado"><h2>Aves de espécies ameaçadas</h2>
+      ${e.ameacadas.map(a => `<div class="peq">${chipAmeaca(a)} <b>${esc(a.popular)}</b> <i>${esc(a.especie)}</i> · ${linkAnilha(a.anilha)}</div>`).join('')}
+      <p class="muted peq">RS: Decreto 51.797/2014. BR: Portaria MMA 444/2014 (redação da Portaria MMA 1.704/2026).</p></div>` : ''}
+
+    <div class="card"><h2>Verificação normativa (${abertos.length} em aberto)</h2>
+      ${!c.rel ? '<p class="muted">Importe o relatório do SISPASS para verificar.</p>' : !abertos.length ? '<p class="muted">Nenhuma pendência em aberto.</p>' : ''}
+      ${DESTINOS.map(d => abertos.filter(i => i.destino === d)).filter(l => l.length)
+        .map(l => `<h2 class="dest-tit">${esc(DESTINO_TXT[l[0].destino])}</h2>${l.map(i => htmlItem(c, i)).join('')}`).join('')}
+      ${resolvidos.length ? `<details><summary>Verificados ou resolvidos (${resolvidos.length})</summary>${resolvidos.map(i => htmlItem(c, i)).join('')}</details>` : ''}
     </div>
+
+    ${vincTxt ? `<div class="card"><h2>Vínculos de cadastro com outros criadores</h2>${vincTxt}</div>` : ''}
+
+    ${formVistoria(c, e)}
+    ${e.vistorias.length ? `<div class="card"><h2>Vistorias (${e.vistorias.length})</h2>${e.vistorias.map(v => `<div class="item">
+      <b>${Normas.fmt(new Date(v.data + 'T12:00'))}: ${RESULTADO[v.resultado] || v.resultado}</b>
+      ${v.maneja === 'outro' ? `<div class="peq">Aves manejadas por: ${esc(v.manejaNome || 'outra pessoa')}</div>` : v.maneja === 'titular' ? '<div class="peq">Titular maneja as aves</div>' : ''}
+      ${v.graves?.length ? `<div class="peq">Infração grave: art. 62, §2º, ${v.graves.join(', ')}</div>` : ''}
+      ${v.irregular?.length ? `<div class="peq">${v.irregular.length} item(ns) constatado(s) irregular(es)</div>` : ''}
+      ${v.obs ? `<div class="peq">${esc(v.obs)}</div>` : ''}
+      <button class="sec b-del-vist" type="button" data-id="${esc(v.id)}">Excluir</button></div>`).join('')}</div>` : ''}
+    ${c.notas ? `<div class="card"><h2>Anotações antigas</h2><p class="peq">${esc(c.notas)}</p></div>` : ''}
 
     ${!r ? `<div class="card"><h2>Sem relatório do SISPASS</h2>
       <p class="muted">Gere o relatório geral deste CPF no SISPASS e importe em <a href="#/dados">Dados</a>.</p></div>` : `
@@ -346,12 +561,8 @@ function telaFicha(cpf) {
         <div><span>Última operação</span>${esc(r.ultimaOperacao || '—')}</div>
         <div><span>Relatório importado</span>${fmtDH(c.rel.importadoEm)}</div>
       </div>
-      ${r.alertas.filter(a => !INDICIOS[a.tipo]).map(a => `<div class="alerta-box">${esc(a.texto)}</div>`).join('')}
-      ${r.alertas.some(a => INDICIOS[a.tipo]) ? `<h2 style="margin-top:12px">Indícios para verificar</h2>
-        <p class="muted peq">Padrões que merecem conferência. Não são prova de irregularidade.</p>
-        ${r.alertas.filter(a => INDICIOS[a.tipo]).map(a => `<div class="alerta-box"><b>${esc(INDICIOS[a.tipo])}:</b> ${esc(a.texto)}</div>`).join('')}` : ''}
     </div>
-    <div class="card"><h2>Plantel</h2>${tabela(c.rel.secoes.Plantel, COLS_PLANTEL)}</div>
+    <div class="card"><h2>Plantel</h2>${tabela(plantel, ['Ameaça', ...COLS_PLANTEL])}</div>
     <div class="card"><h2>Negociou com (transferências confirmadas)</h2>${tabela(vinculos(c.rel).map(v => ({
       'Nome do Doador': v.nome, 'Recebeu dele': v.recebidas, 'Enviou para ele': v.enviadas, 'Última': v.ultima })))
       .replace('<th>Nome do Doador</th>', '<th>Criador</th>')}</div>
@@ -363,17 +574,216 @@ function telaFicha(cpf) {
     <div class="card"><h2>Outras seções do relatório</h2>
       ${outras.map(([t, rows]) => `<details><summary>${esc(t)} <span class="muted peq">(${rows.length})</span></summary>${tabela(rows)}</details>`).join('')}
     </div>`}`;
+  const recarregar = () => { const y = window.scrollY; telaFicha(cpf); window.scrollTo(0, y); };
+  ligarItens(recarregar);
   $('#copiar').onclick = async () => {
     try { await navigator.clipboard.writeText(c.cpf); $('#copiar').textContent = 'CPF copiado'; } catch { $('#copiar').textContent = c.cpf; }
   };
-  $('#salvar').onclick = async () => {
-    c.fisc = { status: $('#st').value, obs: $('#obs').value, atualizadoEm: agora() };
+  $('#sexo').onchange = async ev => { c.sexo = ev.target.value || undefined; sujos.add(c.cpf); await salvar(); recarregar(); };
+  $('#b-vistoria').onclick = async () => {
+    const v = { id: Date.now().toString(36), data: $('#v-data').value || new Date().toISOString().slice(0, 10), resultado: $('#v-res').value,
+      maneja: $('#v-maneja').value, manejaNome: $('#v-maneja-nome').value.trim(), endereco: $('#v-end').value.trim(), obs: $('#v-obs').value.trim(),
+      ok: [], irregular: [], graves: [...document.querySelectorAll('.v-grave:checked')].map(x => x.value) };
+    for (const s of document.querySelectorAll('.v-item')) if (s.value) v[s.value].push(s.dataset.id);
+    if (v.resultado === 'regular' && (v.irregular.length || v.graves.length)) v.resultado = 'irregular';
+    if (v.endereco && v.endereco !== c.endereco) c.endereco = v.endereco;
+    (c.vistorias ||= []).push(v);
     sujos.add(c.cpf);
     await salvar();
-    const sv = $('#salvo');
-    if (sv) sv.textContent = 'Salvo em ' + fmtDH(c.fisc.atualizadoEm);
+    recarregar();
+  };
+  for (const b of document.querySelectorAll('.b-del-vist')) b.onclick = async () => {
+    if (!confirm('Excluir esta vistoria?')) return;
+    c.vistorias = c.vistorias.filter(v => v.id !== b.dataset.id);
+    sujos.add(c.cpf);
+    await salvar();
+    recarregar();
   };
   window.scrollTo(0, 0);
+}
+
+
+// ---------- pendências (fila de trabalho) ----------
+const filtroPend = { destino: 'acoes', cidade: '', tipo: '' };
+function telaPendencias() {
+  const todos = Object.values(db.criadores).filter(c => c.rel || c.vistorias?.length);
+  const cidades = [...new Set(todos.map(c => c.cidade).filter(Boolean))].sort();
+  const lista = todos.filter(c => !filtroPend.cidade || c.cidade === filtroPend.cidade)
+    .flatMap(c => estado(c).abertos.map(i => ({ c, i })))
+    .filter(({ i }) => filtroPend.destino === 'todas' || (filtroPend.destino === 'acoes' ? i.destino !== 'Campo' : i.destino === filtroPend.destino))
+    .filter(({ i }) => !filtroPend.tipo || i.tipo === filtroPend.tipo)
+    .sort((a, b) => (Parser.parseData(b.i.data) || 0) - (Parser.parseData(a.i.data) || 0));
+  const porDestino = d => todos.reduce((n, c) => n + estado(c).abertos.filter(i => i.destino === d).length, 0);
+  app.innerHTML = `<div class="card"><h1>Pendências</h1>
+      <div class="sits">${DESTINOS.map(d => `<div class="sit ${porDestino(d) ? 'ruim' : 'bom'}"><span>${esc(DESTINO_TXT[d])}</span>${porDestino(d)}</div>`).join('')}</div></div>
+    <div class="filtros">
+      <select id="p-dest">${[['acoes', 'SISPASS, SEMA e notificações'], ['todas', 'Todas'], ...DESTINOS.map(d => [d, DESTINO_TXT[d]])]
+        .map(([v, t]) => `<option value="${v}" ${v === filtroPend.destino ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>
+      <select id="p-cid"><option value="">Todas as cidades</option>${cidades.map(c => `<option ${c === filtroPend.cidade ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+      <select id="p-tipo">${[['', 'Todos os tipos'], ['nc', 'Não conformidades'], ['conferir', 'Conferências'], ['indicio', 'Indícios']]
+        .map(([v, t]) => `<option value="${v}" ${v === filtroPend.tipo ? 'selected' : ''}>${t}</option>`).join('')}</select>
+    </div>
+    <p class="muted peq">${lista.length} pendência(s). Só considera criadores com relatório importado ou vistoria registrada.</p>
+    <div class="card">${lista.slice(0, 300).map(({ c, i }) => htmlItem(c, i, true)).join('') || '<p class="muted">Nenhuma pendência.</p>'}
+      ${lista.length > 300 ? '<p class="muted peq">Mostrando as 300 mais recentes. Use os filtros.</p>' : ''}</div>`;
+  $('#p-dest').onchange = ev => { filtroPend.destino = ev.target.value; telaPendencias(); };
+  $('#p-cid').onchange = ev => { filtroPend.cidade = ev.target.value; telaPendencias(); };
+  $('#p-tipo').onchange = ev => { filtroPend.tipo = ev.target.value; telaPendencias(); };
+  ligarItens(() => { const y = window.scrollY; telaPendencias(); window.scrollTo(0, y); });
+}
+
+// ---------- vínculos de cadastro (e-mail, telefone, IP e endereço compartilhados) ----------
+function telaVinculos() {
+  const { grupos } = indices();
+  const bloco = (tipo, titulo, nota) => {
+    const g = Object.entries(grupos[tipo]).sort((a, b) => b[1].size - a[1].size);
+    return `<div class="card"><h2>${titulo} (${g.length})</h2><p class="muted peq">${nota}</p>
+      ${!g.length ? '<p class="muted peq">Nenhum compartilhado.</p>' : `<div class="tabela"><table><thead><tr><th>${titulo.split(' ')[0]}</th><th>Criadores</th><th>Quem</th></tr></thead><tbody>
+      ${g.map(([k, s]) => `<tr><td>${esc(k)}</td><td>${s.size}</td><td style="white-space:normal">${[...s].map(x => `<a href="#/c/${x}">${esc(db.criadores[x]?.nome)}</a> <span class="muted">(${esc(db.criadores[x]?.cidade)})</span>`).join('<br>')}</td></tr>`).join('')}
+      </tbody></table></div>`}</div>`;
+  };
+  app.innerHTML = `<div class="card"><h1>Vínculos de cadastro</h1>
+    <p class="muted peq">Dados repetidos entre criadores podem indicar associação ou terceiro operando o SISPASS (a senha é pessoal: IN SEMA 04/2022, art. 15, §1º; associação só com procuração específica: IN IBAMA 10/2011, art. 60) ou mais de um criador por residência (art. 11, §2º). Considera só relatórios importados, inclusive e-mails e telefones antigos das alterações de cadastro.</p></div>
+    ${bloco('email', 'E-mails compartilhados', 'Sinal forte: o mesmo e-mail em cadastros diferentes.')}
+    ${bloco('fone', 'Telefones compartilhados', 'Comparação pelos 8 últimos dígitos.')}
+    ${bloco('endereco', 'Endereços compartilhados', 'Pela planilha de criadores; formatos diferentes do mesmo endereço podem não ser detectados.')}
+    ${bloco('ip', 'IPs de acesso compartilhados', 'Sinal fraco: operadoras de internet compartilham IP entre clientes.')}`;
+}
+
+
+// ---------- painel gerencial ----------
+const ROTULO_ITEM = { licenca: 'Licença do período irregular', inadimplentes: '2+ licenças inadimplentes', ctf: 'CTF cancelado', zerado: 'Plantel zerado',
+  plantel50: 'Mais de 50 aves', transf35: 'Mais de 35 transferências', transf90: 'Repasse antes de 90 dias', idade35: 'Transferida com < 35 dias',
+  anexoII: 'Espécie do Anexo II transacionada', foraAnexo: 'Espécie fora dos Anexos', diametro: 'Diâmetro de anilha divergente',
+  longevidade: 'Ave muito velha', art71: 'Ameaçada CR (ART)', genotipagem: 'Genotipagem obrigatória', reiteradas: 'Fugas/roubos reiterados',
+  baixa30: 'Baixas > 30% do plantel', nasc35: 'Mais de 35 nascimentos', bo: 'B.O. a conferir', anilhaObito: 'Anilha de óbito a conferir',
+  mesmoEndereco: 'Mais de um criador no endereço', sol: 'Autorização SOL a conferir', vincEmail: 'E-mail compartilhado', vincFone: 'Telefone compartilhado',
+  vincIp: 'IP compartilhado', suspender: 'Suspender licença no SISPASS', fachada: 'Titular não maneja as aves',
+  'ind:saidaRapida': 'Indício: recebida e logo baixada', 'ind:semDestino': 'Indício: recebida sem destino', 'ind:movAlta': 'Indício: movimentação alta',
+  'ind:semLicenca': 'Indício: operações bloqueadas', 'ind:semMov': 'Indício: sem movimentação' };
+const chaveItem = i => i.id.startsWith('ind:') ? i.id : i.id.split(':')[0];
+
+function barras(linhas, opts = {}) { // linhas: [{rotulo, valor, total?, href?, extra?}]
+  const max = Math.max(1, ...linhas.map(l => l.total ?? l.valor));
+  if (!linhas.length) return '<p class="muted peq">Sem dados.</p>';
+  return `<div class="barras">${linhas.map(l => {
+    const dica = `${l.rotulo}: ${l.valor}${l.total !== undefined ? ` de ${l.total}` : ''}`;
+    const conteudo = `<span class="b-rot">${esc(l.rotulo)}${l.extra || ''}</span>
+      <span class="b-trilho" title="${esc(dica)}">${l.total !== undefined ? `<span class="b-total" style="width:${l.total / max * 100}%"></span>` : ''}
+        <span class="b-valor" style="width:${l.valor / max * 100}%"></span></span>
+      <span class="b-num">${l.valor}${l.total !== undefined ? `<span class="muted">/${l.total}</span>` : ''}</span>`;
+    return l.href ? `<a class="barra" href="${l.href}">${conteudo}</a>` : `<div class="barra">${conteudo}</div>`;
+  }).join('')}</div>${opts.nota ? `<p class="muted peq">${opts.nota}</p>` : ''}`;
+}
+
+function telaPainel() {
+  const todos = Object.values(db.criadores), comRel = todos.filter(c => c.rel), hoje = new Date(), per = Normas.periodo(hoje);
+  const E = new Map(todos.map(c => [c.cpf, estado(c)]));
+  const conta = f => todos.filter(c => passaFiltro(c, f)).length;
+  const card = (rot, val, href, cls = '', sub = '') => `<a class="kpi ${cls}" href="${href}"><span>${rot}</span><b>${val}</b>${sub ? `<small>${sub}</small>` : ''}</a>`;
+  const pct = (a, b) => b ? ` (${Math.round(a / b * 100)}%)` : '';
+
+  // Aves e movimentação (só relatórios importados)
+  let ativas = 0, ameacadas = 0, anexoII = 0;
+  const especies = {}, mov = {}, ultimosPer = [];
+  for (let k = 5; k >= 0; k--) ultimosPer.push(Normas.periodo(new Date(per.inicio.getFullYear() - k, 7, 1)).rotulo);
+  const somaMov = (data, campo) => { const d = Parser.parseData(data); if (!d) return; const p = Normas.periodo(d).rotulo; ((mov[p] ||= {})[campo] = (mov[p][campo] || 0) + 1); };
+  const confirmada = r => /confirmar/i.test(r['Operação do Receptor'] || '');
+  for (const c of comRel) {
+    const s = c.rel.secoes;
+    for (const a of s.Plantel || []) {
+      if (!/^ativ/i.test(a['Situação'] || '')) continue;
+      ativas++;
+      const nome = a['Nome Popular'] || a['Espécie'];
+      const am = Normas.ameaca(a['Espécie']);
+      (especies[nome] ||= { n: 0, am });
+      especies[nome].n++;
+      if (am) ameacadas++;
+      if (Normas.especie(a['Espécie'])?.anexo === 'II') anexoII++;
+    }
+    for (const r of (s['Transferências Recebidas'] || []).filter(confirmada)) somaMov(r['Data do Recebimento'], 'Recebidas');
+    for (const r of (s['Transferências Solicitadas'] || []).filter(confirmada)) somaMov(r.Data, 'Enviadas');
+    for (const h of s['Histórico de Operações'] || []) {
+      const op = h['Operação'] || '';
+      if (/nasc/i.test(op)) somaMov(h.Data, 'Nascimentos');
+      else if (/fuga/i.test(op)) somaMov(h.Data, 'Fugas');
+      else if (/roubo|furto/i.test(op)) somaMov(h.Data, 'Roubos/furtos');
+      else if (/(ó|o|\?|ã³)bito/i.test(op)) somaMov(h.Data, 'Óbitos');
+    }
+  }
+  const totMov = campo => Object.values(mov).reduce((n, m) => n + (m[campo] || 0), 0);
+  const MOVS = ['Recebidas', 'Enviadas', 'Nascimentos', 'Fugas', 'Roubos/furtos', 'Óbitos'];
+
+  // Pendências por tipo e vistorias por mês
+  const pend = {};
+  for (const e of E.values()) for (const i of e.abertos) pend[chaveItem(i)] = (pend[chaveItem(i)] || 0) + 1;
+  const meses = [];
+  for (let k = 11; k >= 0; k--) { const d = new Date(hoje.getFullYear(), hoje.getMonth() - k, 1); meses.push(d.toISOString().slice(0, 7)); }
+  const vistMes = Object.fromEntries(meses.map(m => [m, 0]));
+  for (const c of todos) for (const v of c.vistorias || []) if (v.data.slice(0, 7) in vistMes) vistMes[v.data.slice(0, 7)]++;
+
+  const cidades = [...new Set(todos.map(c => c.cidade).filter(Boolean))].sort();
+  const sexoConf = s => todos.filter(c => c.sexo === s).length;
+  const grupos = indices().grupos;
+
+  app.innerHTML = `<div class="card"><h1>Painel</h1>
+    <p class="muted peq">Período de licença ${per.rotulo}. Números de aves, movimentação e pendências consideram só os ${comRel.length} de ${todos.length} criadores com relatório importado${pct(comRel.length, todos.length)}.</p></div>
+
+    <h2 class="sec-tit">Criadores e fiscalização</h2>
+    <div class="kpis">
+      ${card('Criadores na base', todos.length, '#/?f=')}
+      ${card('Com relatório importado', comRel.length, '#/?f=semrel', '', `faltam ${todos.length - comRel.length}`)}
+      ${card(`Fiscalizados em ${per.rotulo}`, conta('fisc'), '#/?f=fisc', 'bom', pct(conta('fisc'), todos.length).trim())}
+      ${card('Não fiscalizados', conta('naofisc'), '#/?f=naofisc')}
+      ${card('Última vistoria irregular', conta('irregular'), '#/?f=irregular', conta('irregular') ? 'ruim' : '')}
+      ${card('Não localizados', conta('naoloc'), '#/?f=naoloc', conta('naoloc') ? 'ruim' : '')}
+      ${card('Licenças suspensas por você', conta('suspensa'), '#/?f=suspensa')}
+      ${card('CTF cancelado', conta('ctf'), '#/?f=ctf', conta('ctf') ? 'ruim' : '')}
+      ${card(`Licença ${per.rotulo} irregular`, conta('licenca'), '#/?f=licenca', conta('licenca') ? 'ruim' : '')}
+      ${card('Com pendência em aberto', conta('abertos'), '#/pendencias', conta('abertos') ? 'ruim' : '')}
+    </div>
+
+    <h2 class="sec-tit">Titulares</h2>
+    <div class="kpis">
+      ${card('Mulheres', conta('F'), '#/?f=F', '', `${sexoConf('F')} confirmadas; demais estimadas pelo nome`)}
+      ${card('Homens', conta('M'), '#/?f=M', '', `${sexoConf('M')} confirmados; demais estimados pelo nome`)}
+      ${card('Titular não maneja as aves', conta('fachada'), '#/?f=fachada', conta('fachada') ? 'ruim' : '', 'constatado em vistoria')}
+      ${card('E-mails compartilhados', Object.keys(grupos.email).length, '#/vinculos', '', `${conta('vinculo')} criadores com e-mail/telefone em comum`)}
+      ${card('Endereços com 2+ criadores', Object.keys(grupos.endereco).length, '#/vinculos')}
+    </div>
+
+    <h2 class="sec-tit">Aves</h2>
+    <div class="kpis">
+      ${card('Aves ativas', ativas, '#/?f=')}
+      ${card('De espécies ameaçadas', ameacadas, '#/?f=ameacadas', ameacadas ? 'ameaca' : '', `${conta('ameacadas')} criadores`)}
+      ${card('Do Anexo II (proibidas de transacionar)', anexoII, '#/?f=')}
+      ${card('Óbitos declarados', totMov('Óbitos'), '#/idades', '', 'ver idades')}
+      ${card('Fugas declaradas', totMov('Fugas'), '#/?f=ocorr')}
+      ${card('Roubos/furtos', totMov('Roubos/furtos'), '#/?f=ocorr')}
+      ${card('Transferências recebidas', totMov('Recebidas'), '#/?f=')}
+      ${card('Nascimentos declarados', totMov('Nascimentos'), '#/?f=')}
+    </div>
+
+    <div class="card"><h2>Fiscalização por município (${per.rotulo})</h2>
+      ${barras(cidades.map(cid => { const cs = todos.filter(c => c.cidade === cid); return { rotulo: cid, valor: cs.filter(c => E.get(c.cpf).fiscalizado).length, total: cs.length,
+        href: `#/?f=naofisc&cidade=${encodeURIComponent(cid)}` }; }), { nota: 'Barra escura: fiscalizados. Clique para ver os não fiscalizados da cidade.' })}</div>
+
+    <div class="card"><h2>Pendências em aberto por tipo</h2>
+      ${barras(Object.entries(pend).sort((a, b) => b[1] - a[1]).map(([k, n]) => ({ rotulo: ROTULO_ITEM[k] || k, valor: n, href: `#/?f=item:${encodeURIComponent(k)}` })))}</div>
+
+    <div class="card"><h2>Movimentação por período de licença</h2>
+      <div class="tabela"><table><thead><tr><th>Período</th>${MOVS.map(m => `<th>${m}</th>`).join('')}</tr></thead><tbody>
+      ${ultimosPer.map(p => `<tr><td>${p}</td>${MOVS.map(m => `<td>${mov[p]?.[m] || 0}</td>`).join('')}</tr>`).join('')}
+      </tbody></table></div>
+      <p class="muted peq">Transferências confirmadas e eventos do histórico dos relatórios importados. Uma transferência entre dois criadores da base aparece como enviada em um e recebida no outro.</p></div>
+
+    <div class="card"><h2>Espécies com mais aves ativas</h2>
+      ${barras(Object.entries(especies).sort((a, b) => b[1].n - a[1].n).slice(0, 10).map(([nome, x]) => ({ rotulo: nome, valor: x.n,
+        extra: x.am ? ` <span class="tag ameaca">${[x.am.rs && 'RS ' + x.am.rs, x.am.br && 'BR ' + x.am.br].filter(Boolean).join(' · ')}</span>` : '',
+        href: `#/?f=&q=${encodeURIComponent(nome)}` })))}</div>
+
+    <div class="card"><h2>Vistorias por mês</h2>
+      ${barras(meses.map(m => ({ rotulo: `${m.slice(5)}/${m.slice(0, 4)}`, valor: vistMes[m] })))}</div>`;
 }
 
 // ---------- importação ----------
@@ -388,7 +798,7 @@ function importarPlanilha(buf) {
     const l = Object.fromEntries(Object.entries(linha).map(([k, v]) => [chaveCol(k), String(v).trim()]));
     const cpf = soDigitos(l.cpf);
     if (cpf.length !== 11) continue;
-    const base = { cpf, registro: l.registro || l.cadastro || '', nome: l.criador || l.nome || '',
+    const base = { cpf, registro: l.registro || l.cadastro || '', nome: nomeProprio(l.criador || l.nome || ''),
       bairro: l.bairro || '', endereco: l.endereco || '', cidade: l.cidade || l.municipio || '' };
     const atual = db.criadores[cpf];
     if (atual) { Object.assign(atual, base); atualizados++; } else { db.criadores[cpf] = { ...base, rel: null, fisc: null }; novos++; }
@@ -397,11 +807,17 @@ function importarPlanilha(buf) {
   return `${novos} criador(es) novo(s), ${atualizados} atualizado(s).`;
 }
 
+// Cidade vinda do SISPASS ("TRAMANDAI/RS") usa a grafia já existente na base ("Tramandaí"), se houver.
+function cidadeDe(municipio) {
+  const m = String(municipio).replace(/\/[A-Z]{2}$/i, '').trim();
+  return Object.values(db.criadores).map(c => c.cidade).find(x => x && norm(x) === norm(m)) || nomeProprio(m);
+}
+
 function importarRelatorio(texto) {
   const rel = parseRelatorio(texto);
   const d = rel.criador;
-  db.criadores[rel.cpf] ||= { cpf: rel.cpf, registro: d.cadastro, nome: d.nome, bairro: d.bairro,
-    endereco: d.endereco, cidade: d.municipio.replace(/\/RS$/i, ''), rel: null, fisc: null };
+  db.criadores[rel.cpf] ||= { cpf: rel.cpf, registro: d.cadastro, nome: nomeProprio(d.nome), bairro: d.bairro,
+    endereco: d.endereco, cidade: cidadeDe(d.municipio), rel: null };
   db.criadores[rel.cpf].rel = { importadoEm: agora(), criador: d, secoes: rel.secoes };
   sujos.add(rel.cpf);
   return db.criadores[rel.cpf].nome;
@@ -417,13 +833,15 @@ const comCriador = (c, rows) => (rows || []).map(r => {
 function exportarPlanilha() {
   const todos = Object.values(db.criadores).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   const criadores = todos.map(c => {
-    const r = resumoDe(c);
+    const e = estado(c), r = e.r;
     return {
-      CPF: fmtCpf(c.cpf), Registro: String(c.registro), Nome: c.nome, Cidade: c.cidade, Bairro: c.bairro, 'Endereço': c.endereco,
-      'Situação fiscalização': STATUS[c.fisc?.status || ''], 'Observações': c.fisc?.obs || '', 'Atualizado em': c.fisc?.atualizadoEm || '',
-      'Relatório importado em': c.rel?.importadoEm || '', 'Aves ativas': r ? r.ativas : '', 'Total de aves': r ? r.total : '',
-      'Alertas': r ? r.alertas.map(a => a.texto).join(' | ') : '', 'Fugas/roubos/óbitos': r ? r.ocorrencias.length : '',
-      'Última licença': r?.ultimaLicenca || '', 'Última operação': r?.ultimaOperacao || '',
+      CPF: fmtCpf(c.cpf), Registro: String(c.registro), Nome: c.nome, Sexo: (e.sexo.valor === 'F' ? 'Feminino' : 'Masculino') + (e.sexo.estimado ? ' (estimado)' : ''),
+      Cidade: c.cidade, Bairro: c.bairro, 'Endereço': c.endereco, 'E-mail SISPASS': c.rel?.criador.email || '',
+      CTF: e.ctf?.status || '', [`Licença ${Normas.periodo(new Date()).rotulo}`]: e.lic?.status || '', 'Aves ameaçadas': e.ameacadas.length,
+      'Última vistoria': e.ultima?.data || '', Resultado: e.ultima ? RESULTADO[e.ultima.resultado] : '', 'Fiscalizado no período': e.fiscalizado ? 'Sim' : 'Não',
+      'Pendências abertas': e.abertos.length, 'Relatório importado em': c.rel?.importadoEm || '', 'Aves ativas': r ? r.ativas : '', 'Total de aves': r ? r.total : '',
+      'Fugas/roubos/óbitos': r ? r.ocorrencias.length : '', 'Última operação': r?.ultimaOperacao || '',
+      _estado: JSON.stringify({ sexo: c.sexo, vistorias: c.vistorias, acoes: c.acoes, notas: c.notas }),
     };
   });
   const comRel = todos.filter(c => c.rel);
@@ -440,6 +858,11 @@ function exportarPlanilha() {
   aba('Óbitos-Idades', obitosDaBase().map(o => ({ CPF: fmtCpf(o.cpf), Criador: db.criadores[o.cpf]?.nome, 'Data do óbito': o.data,
     Anilha: o.anilha, Ave: o.nomePopular, 'Espécie': o.especie, Nascimento: o.nascimento, 'Idade (anos)': o.idadeAnos ?? '' })));
   aba('Histórico', comRel.flatMap(c => comCriador(c, c.rel.secoes['Histórico de Operações'])));
+  aba('Vistorias', todos.flatMap(c => (c.vistorias || []).map(v => ({ CPF: fmtCpf(c.cpf), Criador: c.nome, Data: v.data, Resultado: RESULTADO[v.resultado],
+    'Quem maneja': v.maneja === 'outro' ? `Outra pessoa: ${v.manejaNome}` : v.maneja === 'titular' ? 'Titular' : '',
+    'Infração grave (art. 62, §2º)': (v.graves || []).join(', '), 'Itens irregulares': (v.irregular || []).length, 'Observações': v.obs }))));
+  aba('Pendências', todos.flatMap(c => estado(c).abertos.map(i => ({ CPF: fmtCpf(c.cpf), Criador: c.nome, Cidade: c.cidade, Destino: i.destino,
+    Tipo: i.tipo, Item: i.titulo, Detalhe: i.texto, Base: i.base, 'Providência': i.providencia, 'Data do fato': i.data }))));
   aba('_relatorios', relatorios);
   XLSX.writeFile(wb, `fiscal-passeriformes-${new Date().toISOString().slice(0, 10)}.xlsx`);
   return `Planilha exportada: ${todos.length} criadores, ${comRel.length} com relatório.`;
@@ -447,20 +870,22 @@ function exportarPlanilha() {
 
 function restaurarPlanilha(wb) {
   const ler = nome => XLSX.utils.sheet_to_json(wb.Sheets[nome], { defval: '', raw: false });
-  const statusDe = Object.fromEntries(Object.entries(STATUS).map(([k, v]) => [v, k]));
+  const statusDe = { 'Visitado: regular': 'regular', 'Visitado: irregular': 'irregular', 'Não localizado': 'naoloc' }; // planilhas até a v1.7
   const outro = { criadores: {} };
   for (const l of ler('Criadores')) {
     const cpf = soDigitos(l.CPF);
     if (cpf.length !== 11) continue;
+    let est = {};
+    try { est = l._estado ? JSON.parse(l._estado) : {}; } catch { /* coluna ausente ou editada à mão */ }
+    const c = outro.criadores[cpf] = { cpf, registro: l.Registro, nome: nomeProprio(l.Nome), cidade: l.Cidade, bairro: l.Bairro, endereco: l['Endereço'], rel: null, ...est };
     const status = statusDe[l['Situação fiscalização']] || '';
-    outro.criadores[cpf] = { cpf, registro: l.Registro, nome: l.Nome, cidade: l.Cidade, bairro: l.Bairro, endereco: l['Endereço'], rel: null,
-      fisc: status || l['Observações'] ? { status, obs: l['Observações'], atualizadoEm: l['Atualizado em'] } : null };
+    if (status || l['Observações']) { c.fisc = { status, obs: l['Observações'], atualizadoEm: l['Atualizado em'] }; migrar(c); }
   }
   for (const l of ler('_relatorios')) {
     const texto = Object.keys(l).filter(k => k.startsWith('Parte ')).sort((a, b) => parseInt(a.slice(6)) - parseInt(b.slice(6))).map(k => l[k]).join('');
     const rel = parseRelatorio(texto);
-    outro.criadores[rel.cpf] ||= { cpf: rel.cpf, registro: rel.criador.cadastro, nome: rel.criador.nome, bairro: rel.criador.bairro,
-      endereco: rel.criador.endereco, cidade: rel.criador.municipio.replace(/\/RS$/i, ''), rel: null, fisc: null };
+    outro.criadores[rel.cpf] ||= { cpf: rel.cpf, registro: rel.criador.cadastro, nome: nomeProprio(rel.criador.nome), bairro: rel.criador.bairro,
+      endereco: rel.criador.endereco, cidade: cidadeDe(rel.criador.municipio), rel: null };
     outro.criadores[rel.cpf].rel = { importadoEm: l['Importado em'], criador: rel.criador, secoes: rel.secoes };
   }
   return `Planilha de recuperação importada: ${mesclar(outro)} alteração(ões).`;
@@ -471,13 +896,21 @@ async function lerTexto(arquivo) {
   try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch { return new TextDecoder('windows-1252').decode(buf); }
 }
 
+// Junta dados de outro aparelho ou da planilha: relatório mais recente, união das vistorias, providência mais recente.
 function mesclar(outro) {
   let n = 0;
   for (const [cpf, b] of Object.entries(outro.criadores || {})) {
+    migrar(b);
     const a = db.criadores[cpf];
     if (!a) { db.criadores[cpf] = b; sujos.add(cpf); n++; continue; }
-    if (b.rel && (!a.rel || b.rel.importadoEm > a.rel.importadoEm)) { a.rel = b.rel; sujos.add(cpf); n++; }
-    if (b.fisc && (!a.fisc || b.fisc.atualizadoEm > a.fisc.atualizadoEm)) { a.fisc = b.fisc; sujos.add(cpf); n++; }
+    const antes = JSON.stringify(a);
+    if (b.rel && (!a.rel || b.rel.importadoEm > a.rel.importadoEm)) a.rel = b.rel;
+    const ids = new Set((a.vistorias || []).map(v => v.id));
+    for (const v of b.vistorias || []) if (!ids.has(v.id)) (a.vistorias ||= []).push(v);
+    for (const [k, v] of Object.entries(b.acoes || {})) if (!a.acoes?.[k] || v.data > a.acoes[k].data) (a.acoes ||= {})[k] = v;
+    if (b.sexo && !a.sexo) a.sexo = b.sexo;
+    if (b.notas && !a.notas) a.notas = b.notas;
+    if (JSON.stringify(a) !== antes) { sujos.add(cpf); n++; }
   }
   return n;
 }
@@ -606,6 +1039,14 @@ function rotear() {
   if (h.startsWith('#/c/')) return telaFicha(h.slice(4));
   if (h === '#/dados') return telaDados();
   if (h === '#/idades') return telaIdades();
+  if (h === '#/pendencias') return telaPendencias();
+  if (h === '#/vinculos') return telaVinculos();
+  if (h === '#/painel') return telaPainel();
+  if (h.startsWith('#/?')) { // atalho vindo do painel: #/?f=filtro&cidade=X
+    const q = new URLSearchParams(h.slice(3));
+    filtro.status = q.get('f') || ''; filtro.cidade = q.get('cidade') || ''; filtro.q = q.get('q') || ''; rolagem = 0;
+    return telaLista();
+  }
   if (h.startsWith('#/anilha/')) return telaAnilha(decodeURIComponent(h.slice(9)));
   return telaLista();
 }

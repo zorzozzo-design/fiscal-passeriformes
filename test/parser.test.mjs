@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import '../parser.js';
-const { parseRelatorio, serializar, resumo, soDigitos, parseData, vinculos, chaveAnilha, obitos, idadesPorEspecie, indicios } = globalThis.Parser;
+const { parseRelatorio, serializar, resumo, soDigitos, parseData, vinculos, chaveAnilha, obitos, idadesPorEspecie, indicios, nomeProprio } = globalThis.Parser;
 
 const txt = readFileSync(new URL('./relatorio-ficticio.txt', import.meta.url), 'utf8');
 
@@ -183,4 +183,12 @@ test('óbito reconhecido com acento quebrado', () => {
   ]);
   assert.deepEqual(obitos([{ cpf: 'A', rel: r }]).map(o => o.anilha), ['K1', 'K2', 'K3']);
   assert.equal(resumo(r, { idadeMax: 99, anosSemMov: 99 }).ocorrencias.length, 3);
+});
+
+test('nome próprio: inicial maiúscula, partículas em minúscula', () => {
+  assert.equal(nomeProprio('JOÃO LUIZ NUNES DA SILVA'), 'João Luiz Nunes da Silva');
+  assert.equal(nomeProprio('claudino vieira cunha'), 'Claudino Vieira Cunha');
+  assert.equal(nomeProprio('MARIA  DOS SANTOS E SOUZA'), 'Maria dos Santos e Souza');
+  assert.equal(nomeProprio("JOSÉ D'ÁVILA DE ALMEIDA-PRADO"), "José D'Ávila de Almeida-Prado");
+  assert.equal(nomeProprio('DE SOUZA'), 'De Souza');
 });
