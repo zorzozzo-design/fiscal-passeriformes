@@ -1,4 +1,4 @@
-const CACHE = 'fp-v9';
+const CACHE = 'fp-v10';
 const ARQUIVOS = ['./', 'index.html', 'app.js', 'parser.js', 'normas.js', 'style.css', 'manifest.webmanifest',
   'vendor/xlsx.mini.min.js', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png'];
 

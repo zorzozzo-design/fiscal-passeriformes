@@ -389,7 +389,8 @@ function estado(c) {
     const dt = new Date(v.data + 'T12:00');
     if (v.graves?.length) itens.push({ id: `suspender:${v.id}`, grupo: 'sispass', tipo: 'nc', destino: 'SISPASS', data: Normas.fmt(dt),
       titulo: `Suspender licença (vistoria de ${Normas.fmt(dt)})`, base: 'IN SEMA 04/2022, art. 62',
-      texto: Normas.textoSuspensao(dt, v.graves.map(g => GRAVES.find(x => x[0] === g)[1]), v.graves.map(g => `art. 62, §2º, ${g}`)),
+      texto: Normas.textoSuspensao(dt, v.graves.map(g => GRAVES.find(x => x[0] === g)[1]), v.graves.map(g => `art. 62, §2º, ${g}`))
+        + obsSemGraves(v),
       providencia: `No SISPASS: alterar a licença${lic?.numero ? ' nº ' + lic.numero : ' do período'} de regular para suspensa e colar a observação acima.` });
     if (v.maneja === 'outro') itens.push({ id: `fachada:${v.id}`, grupo: 'sispass', tipo: 'indicio', destino: 'Campo', data: Normas.fmt(dt),
       titulo: 'Titular não é quem maneja as aves', base: 'IN SEMA 04/2022, arts. 11 e 62, §2º, I e VI',
@@ -414,8 +415,8 @@ function estado(c) {
 
 // Dados antigos (até a v1.7) guardavam só a "situação" da fiscalização; vira uma vistoria com a data em que foi salva.
 function migrar(c) {
-  const nome = nomeProprio(c.nome);
-  if (nome !== c.nome) { c.nome = nome; if (!c.fisc) return true; }
+  const nome = nomeProprio(c.nome), cidade = c.cidade && c.cidade === c.cidade.toUpperCase() ? cidadeDe(c.cidade) : c.cidade;
+  if (nome !== c.nome || cidade !== c.cidade) { c.nome = nome; c.cidade = cidade; if (!c.fisc) return true; }
   if (!c.fisc) return false;
   if (c.fisc.status) (c.vistorias ||= []).push({ id: 'mig-' + c.cpf, data: (c.fisc.atualizadoEm || agora()).slice(0, 10), resultado: c.fisc.status,
     obs: c.fisc.obs || '', ok: [], irregular: [], graves: [] });
@@ -443,6 +444,48 @@ function htmlItem(c, i, comCriador = false) {
       : i.feito ? '<button class="sec b-desfazer" type="button">Desfazer</button>' : ''}
   </div>`;
 }
+// Cards da ficha: o título abre/fecha o conteúdo. A escolha fica lembrada neste navegador (só conveniência).
+const lerPref = (k, padrao) => { try { return JSON.parse(localStorage.getItem(k)) ?? padrao; } catch { return padrao; } };
+const gravarPref = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* armazenamento indisponível */ } };
+function tornarDobraveis(abertosPorPadrao) {
+  const est = lerPref('fp-secoes', {});
+  const cards = [];
+  for (const card of app.querySelectorAll('.card')) {
+    const h = card.querySelector(':scope > h2');
+    if (!h || card.id === 'topo-ficha') continue;
+    const chave = h.textContent.replace(/\(.*?\)/g, '').trim();
+    const corpo = document.createElement('div');
+    corpo.className = 'corpo';
+    while (h.nextSibling) corpo.appendChild(h.nextSibling);
+    card.append(corpo);
+    card.classList.add('dobra');
+    h.tabIndex = 0;
+    h.setAttribute('role', 'button');
+    const abrir = aberto => { card.classList.toggle('fechado', !aberto); h.setAttribute('aria-expanded', aberto); };
+    abrir(chave in est ? est[chave] : abertosPorPadrao.some(p => chave.startsWith(p)));
+    const alternar = () => { const aberto = card.classList.contains('fechado'); abrir(aberto); est[chave] = aberto; gravarPref('fp-secoes', est); };
+    h.onclick = alternar;
+    h.onkeydown = ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); alternar(); } };
+    cards.push({ chave, abrir });
+  }
+  const todos = aberto => { for (const c of cards) { c.abrir(aberto); est[c.chave] = aberto; } gravarPref('fp-secoes', est); };
+  $('#b-expandir')?.addEventListener('click', () => todos(true));
+  $('#b-recolher')?.addEventListener('click', () => todos(false));
+}
+// Card do topo fixado: fica preso no alto, compacto (só nome e indicadores).
+function ligarFixar() {
+  const card = $('#topo-ficha'), b = $('#b-fixar');
+  if (!card || !b) return;
+  const aplicar = f => {
+    card.classList.toggle('fixado', f);
+    b.setAttribute('aria-pressed', f);
+    b.textContent = f ? '📌 Soltar' : '📌 Fixar';
+    document.documentElement.style.setProperty('--topo-h', $('.topo').offsetHeight + 'px');
+  };
+  aplicar(lerPref('fp-fixar', false));
+  b.onclick = () => { const f = !card.classList.contains('fixado'); gravarPref('fp-fixar', f); aplicar(f); };
+}
+
 // Botões dos itens (ficha e pendências): marcam/desfazem a providência.
 function ligarItens(depois) {
   for (const b of document.querySelectorAll('.b-copiar-txt')) b.onclick = async () => {
@@ -458,6 +501,89 @@ function ligarItens(depois) {
     depois();
   };
 }
+
+
+// ---------- mensagens prontas (SISPASS, SEMA, notificação) ----------
+const MODELOS = {
+  sema: { rot: 'Comunicação à SEMA/DIFAU', destinos: ['SEMA', 'SISPASS'], assunto: c => `Fiscalização de criador amador de passeriformes: ${c.nome}` },
+  sispass: { rot: 'Observação para o SISPASS', destinos: ['SISPASS'] },
+  notificacao: { rot: 'Notificação ao criador', destinos: ['Notificação'], assunto: () => 'Notificação: criação amadora de passeriformes' },
+};
+function textoMensagem(c, e, modelo, itens) {
+  const hoje = Normas.fmt(new Date()), vist = e.ultima ? Normas.fmt(new Date(e.ultima.data + 'T12:00')) : '';
+  const assinatura = db.cfg.assinatura ? `\n\n${db.cfg.assinatura}` : '';
+  const lista = itens.map((i, n) => `${n + 1}. ${i.titulo}: ${i.texto} (${i.base}).`).join('\n');
+  if (modelo === 'sispass') {
+    const susp = itens.find(i => i.id.startsWith('suspender:'));
+    if (susp && itens.length === 1) return susp.texto;
+    return `Fiscalização PATRAM/BM em ${vist || hoje}. ${itens.map(i => i.id.startsWith('suspender:') ? i.texto : `${i.titulo} (${i.base}).`).join(' ')}`;
+  }
+  const ident = `Nome: ${c.nome}\nCPF: ${fmtCpf(c.cpf)}\nRegistro SISPASS: ${c.registro || '-'}\nEndereço: ${[c.endereco, c.bairro, c.cidade].filter(Boolean).join(', ')}`;
+  if (modelo === 'notificacao') return `NOTIFICAÇÃO\n\nSr(a). ${c.nome}, CPF ${fmtCpf(c.cpf)}, criador(a) amador(a) de passeriformes, fica NOTIFICADO(A) quanto ao seguinte:\n\n${lista}\n\nProvidências exigidas:\n${itens.map((i, n) => `${n + 1}. ${i.providencia}`).join('\n')}\n\nFundamento: IN SEMA nº 04/2022. O não atendimento no prazo poderá caracterizar infração administrativa (art. 64).\n\n${[c.cidade, hoje].filter(Boolean).join(', ')}.${assinatura}`;
+  return `À SEMA/DIFAU,\n\nComunico, para conhecimento e providências, situação verificada pela Patrulha Ambiental (PATRAM/BM) referente a criador amador de passeriformes:\n\n${ident}\n${vist ? `Última vistoria: ${vist} (${RESULTADO[e.ultima.resultado]})\n` : ''}\nConstatações:\n${lista}\n\nProvidências sugeridas:\n${itens.map((i, n) => `${n + 1}. ${i.providencia}`).join('\n')}\n\nAtenciosamente,${assinatura || '\n'}`;
+}
+function cardMensagens(c, e) {
+  if (!e.itens.length) return '';
+  return `<div class="card"><h2>Mensagens (SISPASS, SEMA, notificação)</h2>
+    <label for="m-modelo">Modelo</label>
+    <select id="m-modelo">${Object.entries(MODELOS).map(([k, m]) => `<option value="${k}">${m.rot}</option>`).join('')}</select>
+    <label>Itens incluídos</label>
+    <div id="m-itens">${e.itens.map(i => `<label class="chk"><input type="checkbox" class="m-item" value="${esc(i.id)}"> <span>${esc(i.titulo)} <span class="muted peq">(${esc(i.destino)}${i.aberto ? '' : ', resolvido'})</span></span></label>`).join('')}</div>
+    <label for="m-texto">Texto (pode editar)</label>
+    <textarea id="m-texto" rows="12"></textarea>
+    <div class="linha" style="margin-top:8px">
+      <button id="m-copiar" type="button">Copiar</button>
+      <a class="btn sec" id="m-whats" target="_blank" rel="noopener noreferrer" href="#">WhatsApp</a>
+      <a class="btn sec" id="m-email" href="#">E-mail</a>
+    </div>
+    ${db.cfg.assinatura ? '' : '<p class="muted peq">Configure a assinatura das mensagens em Dados, item 4.</p>'}
+  </div>`;
+}
+function ligarMensagens(c, e) {
+  if (!$('#m-modelo')) return;
+  const marcar = () => {
+    const m = MODELOS[$('#m-modelo').value];
+    for (const x of document.querySelectorAll('.m-item')) { const i = e.itens.find(i => i.id === x.value); x.checked = i.aberto && m.destinos.includes(i.destino); }
+  };
+  const gerar = () => {
+    const modelo = $('#m-modelo').value, ids = [...document.querySelectorAll('.m-item:checked')].map(x => x.value);
+    $('#m-texto').value = ids.length ? textoMensagem(c, e, modelo, e.itens.filter(i => ids.includes(i.id))) : '';
+    atualizarLinks();
+  };
+  const atualizarLinks = () => {
+    const t = $('#m-texto').value, assunto = MODELOS[$('#m-modelo').value].assunto?.(c) || 'Fiscalização PATRAM/BM';
+    $('#m-whats').href = 'https://wa.me/?text=' + encodeURIComponent(t);
+    $('#m-email').href = `mailto:?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent(t)}`;
+  };
+  $('#m-modelo').onchange = () => { marcar(); gerar(); };
+  for (const x of document.querySelectorAll('.m-item')) x.onchange = gerar;
+  $('#m-texto').oninput = atualizarLinks;
+  $('#m-copiar').onclick = async () => {
+    try { await navigator.clipboard.writeText($('#m-texto').value); $('#m-copiar').textContent = 'Copiado'; }
+    catch { $('#m-texto').select(); $('#m-copiar').textContent = 'Use Ctrl+C'; }
+  };
+  marcar();
+  gerar();
+}
+
+const fraseGrave = g => `Infração grave: ${GRAVES.find(x => x[0] === g)[1]} (IN SEMA 04/2022, art. 62, §2º, ${g}).`;
+// Observação da vistoria para o SISPASS, sem repetir as infrações que já estão no "Motivo".
+const obsSemGraves = v => { const o = GRAVES.reduce((t, [g]) => t.split(fraseGrave(g)).join(''), v.obs || '').replace(/\s+/g, ' ').trim(); return o ? ` Obs.: ${o}` : ''; };
+// Frases prontas para a observação da vistoria (um clique acrescenta ao texto).
+const FRASES = [
+  'Plantel físico confere com o plantel do SISPASS.',
+  'Ave(s) sem anilha ou com anilha violada/adulterada.',
+  'Ave(s) do plantel do SISPASS ausente(s) no local.',
+  'Ave(s) no local que não constam no plantel do SISPASS.',
+  'Diâmetro de anilha incompatível com a espécie.',
+  'Relação de passeriformes atualizada não apresentada (IN SEMA 04/2022, art. 40, III).',
+  'Gaiolas sem identificação com código da anilha e CPF.',
+  'Condições inadequadas de manutenção (água, alimento, higiene ou poleiros) (art. 41).',
+  'Aves mantidas fora do endereço cadastrado (art. 40, I).',
+  'Criador não localizado no endereço cadastrado.',
+  'Aves manejadas por terceiro; titular não reside no local.',
+  'Notificado(a) a regularizar no prazo de 15 dias (art. 64).',
+];
 
 function formVistoria(c, e) {
   const campo = e.itens.filter(i => i.grupo === 'campo' && i.aberto);
@@ -475,7 +601,11 @@ function formVistoria(c, e) {
     <h2 style="margin-top:12px">Infração grave constatada (art. 62, §2º)</h2>
     <p class="muted peq">Se marcar, o app gera o texto de suspensão da licença para o SISPASS.</p>
     ${GRAVES.map(([k, t]) => `<label class="chk"><input type="checkbox" class="v-grave" value="${k}"> ${k}: ${esc(t)}</label>`).join('')}
-    <label for="v-obs">Observações</label><textarea id="v-obs"></textarea>
+    <label for="v-obs">Observações</label>
+    <div class="frases">${FRASES.map(f => `<button class="sec chip-txt" type="button">${esc(f)}</button>`).join('')}</div>
+    <textarea id="v-obs" rows="5" placeholder="Clique nas frases acima e complete digitando"></textarea>
+    <div class="linha"><button class="sec" id="v-obs-copiar" type="button">Copiar</button>
+      <a class="btn sec" id="v-obs-whats" target="_blank" rel="noopener noreferrer" href="https://wa.me/">WhatsApp</a></div>
     <p><button id="b-vistoria" type="button">Salvar vistoria</button> <span id="m-vist" class="msg"></span></p>
   </div>`;
 }
@@ -499,9 +629,10 @@ function telaFicha(cpf) {
   const vincTxt = Object.entries({ email: 'E-mail', fone: 'Telefone', ip: 'IP de acesso', endereco: 'Endereço' })
     .flatMap(([t, rot]) => e.vinc[t].map(v => `<div class="peq"><b>${rot} ${esc(v.chave)}</b>: ${v.outros.map(x => `<a href="#/c/${x}">${esc(db.criadores[x]?.nome)}</a>`).join(', ')}</div>`)).join('');
   app.innerHTML = `
-    <p class="linha"><a href="#/">← Criadores</a> <a href="javascript:history.back()">← Voltar</a></p>
-    <div class="card ${e.ameacadas.length ? 'ameacado' : ''}">
-      <h1>${esc(c.nome)}</h1>
+    <p class="linha"><a href="#/">← Criadores</a> <a href="javascript:history.back()">← Voltar</a>
+      <span style="flex:1"></span><button class="sec" id="b-expandir" type="button">Expandir tudo</button><button class="sec" id="b-recolher" type="button">Recolher tudo</button></p>
+    <div class="card ${e.ameacadas.length ? 'ameacado' : ''}" id="topo-ficha">
+      <div class="linha"><h1 style="flex:1">${esc(c.nome)}</h1><button class="sec" id="b-fixar" type="button" aria-pressed="false">📌 Fixar</button></div>
       ${e.ameacadas.length ? `<p>${chip(`${e.ameacadas.length} ave(s) de espécie ameaçada`, 'ameaca')}</p>` : ''}
       <div class="sits">
         ${sit('CTF', e.ctf ? esc(e.ctf.status) : '—', e.ctf ? (e.ctf.status === 'ativo' ? 'bom' : 'ruim') : '')}
@@ -510,7 +641,7 @@ function telaFicha(cpf) {
         ${sit('Pendências abertas', abertos.length, abertos.length ? 'ruim' : 'bom')}
         ${c.acoes && Object.keys(c.acoes).some(k => k.startsWith('suspender:')) ? sit('Licença', 'suspensa por você', 'ruim') : ''}
       </div>
-      <div class="grade" style="margin-top:10px">
+      <div class="det"><div class="grade" style="margin-top:10px">
         <div><span>CPF</span>${esc(fmtCpf(c.cpf))}</div>
         <div><span>Registro</span>${esc(c.registro)}</div>
         <div><span>Cidade</span>${esc(c.cidade)}</div>
@@ -525,7 +656,7 @@ function telaFicha(cpf) {
       <div class="linha">
         <a class="btn sec" target="_blank" rel="noopener noreferrer" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(end)}">Abrir no mapa</a>
         <button class="sec" id="copiar" type="button">Copiar CPF</button>
-      </div>
+      </div></div>
     </div>
 
     ${e.ameacadas.length ? `<div class="card ameacado"><h2>Aves de espécies ameaçadas</h2>
@@ -539,6 +670,7 @@ function telaFicha(cpf) {
       ${resolvidos.length ? `<details><summary>Verificados ou resolvidos (${resolvidos.length})</summary>${resolvidos.map(i => htmlItem(c, i)).join('')}</details>` : ''}
     </div>
 
+    ${cardMensagens(c, e)}
     ${vincTxt ? `<div class="card"><h2>Vínculos de cadastro com outros criadores</h2>${vincTxt}</div>` : ''}
 
     ${formVistoria(c, e)}
@@ -547,7 +679,7 @@ function telaFicha(cpf) {
       ${v.maneja === 'outro' ? `<div class="peq">Aves manejadas por: ${esc(v.manejaNome || 'outra pessoa')}</div>` : v.maneja === 'titular' ? '<div class="peq">Titular maneja as aves</div>' : ''}
       ${v.graves?.length ? `<div class="peq">Infração grave: art. 62, §2º, ${v.graves.join(', ')}</div>` : ''}
       ${v.irregular?.length ? `<div class="peq">${v.irregular.length} item(ns) constatado(s) irregular(es)</div>` : ''}
-      ${v.obs ? `<div class="peq">${esc(v.obs)}</div>` : ''}
+      ${v.obs ? `<div class="peq" style="white-space:pre-wrap">${esc(v.obs)}</div><button class="sec b-copiar-txt" type="button" data-txt="${esc(v.obs)}">Copiar observação</button>` : ''}
       <button class="sec b-del-vist" type="button" data-id="${esc(v.id)}">Excluir</button></div>`).join('')}</div>` : ''}
     ${c.notas ? `<div class="card"><h2>Anotações antigas</h2><p class="peq">${esc(c.notas)}</p></div>` : ''}
 
@@ -575,6 +707,20 @@ function telaFicha(cpf) {
       ${outras.map(([t, rows]) => `<details><summary>${esc(t)} <span class="muted peq">(${rows.length})</span></summary>${tabela(rows)}</details>`).join('')}
     </div>`}`;
   const recarregar = () => { const y = window.scrollY; telaFicha(cpf); window.scrollTo(0, y); };
+  tornarDobraveis(['Aves de espécies ameaçadas', 'Verificação normativa', 'Plantel', 'Vínculos de cadastro', 'Sem relatório']);
+  ligarFixar();
+  ligarMensagens(c, e);
+  const obsLink = () => { $('#v-obs-whats').href = 'https://wa.me/?text=' + encodeURIComponent($('#v-obs').value); };
+  const acrescentar = t => { const o = $('#v-obs'); if (!o.value.includes(t)) o.value = (o.value.trim() ? o.value.trim() + ' ' : '') + t; obsLink(); };
+  $('#v-obs').oninput = obsLink;
+  for (const b of document.querySelectorAll('.chip-txt')) b.onclick = () => acrescentar(b.textContent);
+  for (const g of document.querySelectorAll('.v-grave')) g.onchange = () => {
+    if (g.checked) acrescentar(fraseGrave(g.value));
+  };
+  $('#v-obs-copiar').onclick = async () => {
+    try { await navigator.clipboard.writeText($('#v-obs').value); $('#v-obs-copiar').textContent = 'Copiado'; }
+    catch { $('#v-obs').select(); $('#v-obs-copiar').textContent = 'Use Ctrl+C'; }
+  };
   ligarItens(recarregar);
   $('#copiar').onclick = async () => {
     try { await navigator.clipboard.writeText(c.cpf); $('#copiar').textContent = 'CPF copiado'; } catch { $('#copiar').textContent = c.cpf; }
@@ -810,7 +956,7 @@ function importarPlanilha(buf) {
 // Cidade vinda do SISPASS ("TRAMANDAI/RS") usa a grafia já existente na base ("Tramandaí"), se houver.
 function cidadeDe(municipio) {
   const m = String(municipio).replace(/\/[A-Z]{2}$/i, '').trim();
-  return Object.values(db.criadores).map(c => c.cidade).find(x => x && norm(x) === norm(m)) || nomeProprio(m);
+  return Object.values(db.criadores).map(c => c.cidade).find(x => x && x !== x.toUpperCase() && norm(x) === norm(m)) || nomeProprio(m);
 }
 
 function importarRelatorio(texto) {
@@ -945,14 +1091,16 @@ function telaDados() {
         <label class="btn sec" style="margin:0">Importar backup<input type="file" id="f-bak" accept=".json,application/json" hidden></label></div>
       <p id="m-bak" class="msg"></p></div>
 
-    <div class="card"><h2>4. Alertas e indícios</h2>
+    <div class="card"><h2>4. Alertas, indícios e assinatura</h2>
       <div class="grade">
         <div><label for="c-idade">Ave ativa com mais de (anos)</label><input id="c-idade" type="number" min="1" value="${db.cfg.idadeMax}"></div>
         <div><label for="c-mov">Sem operações há mais de (anos)</label><input id="c-mov" type="number" min="1" value="${db.cfg.anosSemMov}"></div>
         <div><label for="c-saida">Ave recebida e baixada em até (dias)</label><input id="c-saida" type="number" min="1" value="${db.cfg.diasSaida ?? 30}"></div>
         <div><label for="c-ano">Movimentação alta a partir de (transferências/ano)</label><input id="c-ano" type="number" min="1" value="${db.cfg.transfAno ?? 10}"></div>
       </div>
-      <p><button id="b-cfg" type="button">Salvar alertas</button> <span id="m-cfg" class="muted peq"></span></p></div>
+      <label for="c-assin">Assinatura das mensagens</label>
+      <textarea id="c-assin" rows="3" placeholder="Ex.: Nome, posto/graduação, PATRAM, pelotão, telefone">${esc(db.cfg.assinatura || '')}</textarea>
+      <p><button id="b-cfg" type="button">Salvar</button> <span id="m-cfg" class="muted peq"></span></p></div>
 
     <div class="card"><h2>Apagar</h2>
       <p class="muted peq">Remove todos os dados deste aparelho. Exporte um backup antes.</p>
@@ -1024,6 +1172,7 @@ function telaDados() {
     db.cfg.anosSemMov = Math.max(1, +$('#c-mov').value || 10);
     db.cfg.diasSaida = Math.max(1, +$('#c-saida').value || 30);
     db.cfg.transfAno = Math.max(1, +$('#c-ano').value || 10);
+    db.cfg.assinatura = $('#c-assin').value.trim();
     await salvar();
     msg('#m-cfg', 'Salvo.');
   };

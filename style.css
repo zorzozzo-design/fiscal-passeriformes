@@ -90,3 +90,14 @@ nav { overflow-x: auto; }
 .b-total { background: var(--borda); } .b-valor { background: var(--pri); min-width: 2px; }
 .b-num { font-variant-numeric: tabular-nums; font-weight: 600; }
 @media (max-width: 420px) { nav { gap: 8px; font-size: .88rem; } nav button { padding: 6px 8px; } .topo { padding: 8px 10px; gap: 8px; } }
+.card.dobra > h2 { cursor: pointer; display: flex; align-items: center; gap: 8px; margin: 0; }
+.card.dobra > h2::before { content: '▾'; color: var(--muted); transition: transform .15s; }
+.card.dobra.fechado > h2::before { transform: rotate(-90deg); }
+.card.dobra > .corpo { margin-top: 10px; }
+.card.dobra.fechado > .corpo { display: none; }
+#topo-ficha.fixado { position: sticky; top: var(--topo-h, 56px); z-index: 4; box-shadow: 0 6px 16px rgba(0, 0, 0, .12); }
+#topo-ficha.fixado .det { display: none; }
+#topo-ficha.fixado h1 { font-size: 1.1rem; }
+#topo-ficha.fixado .sits { margin-top: 4px; }
+#topo-ficha.fixado .sit { padding: 4px 8px; }
+.frases { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; } .frases button { font-size: .8rem; padding: 5px 9px; font-weight: 500; text-align: left; }
