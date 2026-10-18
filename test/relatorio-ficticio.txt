@@ -1,0 +1,31 @@
+
+ 
+Dados do Criador
+Cadastro	Nome Criador	CPF	Email	Endereço	Bairro	Município	CEP	Fone	Data
+100001	Fulano de Teste	111.444.777-35		Rua Exemplo, 10	Centro	TRAMANDAI/RS	95590-000		01/02/2026
+ 
+Dados do Criadouro
+
+
+Nenhum registro encontrado.
+ 
+Licenças Verificadas no Sistema
+SEQ_LICENCA	SEQ_OPERACAO	DAT_EMISSAO	DAT_VALIDADE	DES_LICENCA_SITUACAO	Número	Data emissão	Validade	Situação
+1	2	01/08/2010	31/07/2011	regular	2	01/08/2010	31/07/2011	regular
+3	4	01/08/2009	31/07/2010	regular	4	01/08/2009	31/07/2010	regular
+ 
+Plantel
+Situação	Espécie	Nome Popular	Sexo	Nascimento	Matriz	Marcação	Diâmetro anilha	Código anilha	ULTIMA_OPERACAO	DATA_OPERACAO
+Ativa	Sporophila angolensis	Curió	M	10/10/1995	N	anilha fechada	2,6	AAA-BBB-1-001/95	importar plantel de IN5	09/12/2003
+Ativa	Saltator similis	Trinca-ferro	F	05/05/2022	N	anilha fechada	3,5	CCC-DDD-2-002/22	nascimento	06/05/2022
+Inativa	Sicalis flaveola	Canário-da-terra	M	01/01/2018	N	anilha fechada	2,8	EEE-FFF-3-003/18	fuga	02/02/2020
+ 
+Tela de Solic. Anilha
+Erro
+Nenhum Registro Encontrado.
+ 
+Histórico de Operações
+Número	Operação	Data	Anilha	Receptor	Feito por
+900	comunicar fuga	02/02/2020 10:00	EEE-FFF-3-003/18		Fulano de Teste
+901	nascimento	06/05/2022 09:00	CCC-DDD-2-002/22		Fulano de Teste
+902	importar plantel de IN5	09/12/2003 11:44	AAA-BBB-1-001/95		Fulano de Teste

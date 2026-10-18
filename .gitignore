@@ -1,0 +1,6 @@
+node_modules/
+*.xlsx
+*.csv
+backup-*.json
+relatorio*.txt
+!test/relatorio-ficticio.txt
