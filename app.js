@@ -1,4 +1,4 @@
-import { parseRelatorio, resumo, soDigitos } from './parser.js';
+const { parseRelatorio, resumo, soDigitos } = window.Parser;
 
 // ---------- utilitários ----------
 const $ = s => document.querySelector(s);

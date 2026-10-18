@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { parseRelatorio, resumo, soDigitos, parseData } from '../parser.js';
+import '../parser.js';
+const { parseRelatorio, resumo, soDigitos, parseData } = globalThis.Parser;
 
 const txt = readFileSync(new URL('./relatorio-ficticio.txt', import.meta.url), 'utf8');
 

@@ -1,15 +1,17 @@
 // Leitura do "relatório geral" do SISPASS (texto separado por TAB, em seções).
+// Script comum (sem módulos) para funcionar também aberto direto do arquivo (file://).
+(() => {
 
-export const soDigitos = s => String(s ?? '').replace(/\D/g, '');
+const soDigitos = s => String(s ?? '').replace(/\D/g, '');
 
-export function parseData(s) {
+function parseData(s) {
   const m = String(s ?? '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
   return m ? new Date(+m[3], +m[2] - 1, +m[1]) : null;
 }
 
 const VAZIO = /^(nenhum registro encontrado\.?|erro)$/i;
 
-export function parseRelatorio(texto) {
+function parseRelatorio(texto) {
   const secoes = {};
   let atual = null, cab = null;
   for (const bruta of String(texto).split(/\r?\n/)) {
@@ -44,7 +46,7 @@ export function parseRelatorio(texto) {
 
 const OCORRENCIA = /fuga|roubo|furto|[óo]bito|morte/i;
 
-export function resumo(rel, cfg, hoje = new Date()) {
+function resumo(rel, cfg, hoje = new Date()) {
   const s = rel.secoes;
   const plantel = s['Plantel'] || [];
   const hist = s['Histórico de Operações'] || [];
@@ -75,3 +77,6 @@ export function resumo(rel, cfg, hoje = new Date()) {
 
   return { ativas: ativas.length, total: plantel.length, ocorrencias, ultimaLicenca, ultimaOperacao, alertas };
 }
+
+globalThis.Parser = { parseRelatorio, resumo, soDigitos, parseData };
+})();
