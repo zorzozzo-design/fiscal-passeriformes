@@ -152,7 +152,7 @@ test('indícios de fraude', () => {
   assert.match(por.saidaRapida, /R2 [^;]*fuga em 9 dias/);
   assert.doesNotMatch(por.saidaRapida, /R3/);
   assert.match(por.fugas, /^2 fugas/);
-  assert.match(por.movAlta, /2015: 4/);
+  assert.match(por.movAlta, /2014\/2015: 4/);
   assert.match(por.semLicenca, /^2 /);
   assert.match(por.zerado, /sem aves ativas/);
 });

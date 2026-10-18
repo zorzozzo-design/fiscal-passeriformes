@@ -141,10 +141,12 @@ function indicios(rel, cfg) {
   const porAno = {};
   for (const x of [...entradas, ...saidas.filter(x => x.tipo === 'transferência')]) {
     const d = parseData(x.data);
-    if (d) porAno[d.getFullYear()] = (porAno[d.getFullYear()] || 0) + 1;
+    if (!d) continue;
+    const ini = d.getMonth() >= 7 ? d.getFullYear() : d.getFullYear() - 1; // período de licença: 1º/8 a 31/7
+    porAno[`${ini}/${ini + 1}`] = (porAno[`${ini}/${ini + 1}`] || 0) + 1;
   }
   const altos = Object.entries(porAno).filter(([, n]) => n >= transfAno);
-  if (altos.length) out.push({ tipo: 'movAlta', texto: `Movimentação alta (${transfAno}+ transferências confirmadas no ano): ${altos.map(([a, n]) => `${a}: ${n}`).join('; ')}` });
+  if (altos.length) out.push({ tipo: 'movAlta', texto: `Movimentação alta (${transfAno}+ transferências confirmadas no período de licença): ${altos.map(([a, n]) => `${a}: ${n}`).join('; ')}` });
 
   const bloqueios = (s['Mensagens de Erro'] || []).filter(m => /licen[cç]a (n[aã]o emitida|pendente)/i.test(m.Mensagem || ''));
   if (bloqueios.length) out.push({ tipo: 'semLicenca', texto: `${bloqueios.length} tentativa(s) de operação bloqueada(s) por licença não emitida/pendente (última: ${bloqueios.map(m => m['Data do erro']).filter(parseData).sort((a, b) => parseData(b) - parseData(a))[0]?.slice(0, 10) || '?'})` });
