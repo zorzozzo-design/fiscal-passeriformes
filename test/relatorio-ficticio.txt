@@ -39,3 +39,8 @@ Data do erro	Operação	Tipo do erro	Mensagem	CNT
 15/10/2014 20:58:03	solicitar licença de criador amadorista	Restrição	Primeira parte da mensagem.
 Segunda parte da mensagem.	
 14/08/2016 19:39:08	emitir relação	Licenca	Licença não emitida.	
+ 
+Transferências Recebidas
+Data da Doação	Nome do Doador	Operação do Doador	Anilha	Data do Recebimento	Operação do Receptor
+01/03/2016	Ciclano Exemplo	solicitar transferência de passeriforme	AAA-BBB-1-001/95	01/03/2016	confirmar transferência de passeriforme
+02/03/2016	CICLANO EXEMPLO	solicitar transferência de passeriforme	ZZZ 9,9 000001	02/03/2016	recusar transferência de passeriforme

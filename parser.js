@@ -58,6 +58,24 @@ function parseRelatorio(texto) {
   };
 }
 
+const normNome = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+const chaveAnilha = s => String(s ?? '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+
+// Criadores com quem houve transferência confirmada (o relatório traz só o nome, sem CPF).
+function vinculos(rel) {
+  const mapa = {};
+  const somar = (nome, campo, data) => {
+    if (!nome) return;
+    const v = mapa[normNome(nome)] ||= { nome, recebidas: 0, enviadas: 0, ultima: '' };
+    v[campo]++;
+    if (!v.ultima || parseData(data) > parseData(v.ultima)) v.ultima = data;
+  };
+  const confirmada = r => /confirmar/i.test(r['Operação do Receptor'] || '');
+  for (const r of rel.secoes['Transferências Recebidas'] || []) if (confirmada(r)) somar(r['Nome do Doador'], 'recebidas', r['Data do Recebimento']);
+  for (const r of rel.secoes['Transferências Solicitadas'] || []) if (confirmada(r)) somar(r['Nome do Receptor'], 'enviadas', r['Data Recebimento']);
+  return Object.values(mapa).sort((a, b) => normNome(a.nome).localeCompare(normNome(b.nome)));
+}
+
 // Gera de volta o texto no formato do relatório (usado para guardar na planilha e recuperar depois).
 function serializar(secoes) {
   return Object.entries(secoes).map(([titulo, rows]) => {
@@ -102,5 +120,5 @@ function resumo(rel, cfg, hoje = new Date()) {
   return { ativas: ativas.length, total: plantel.length, ocorrencias, ultimaLicenca, ultimaOperacao, alertas };
 }
 
-globalThis.Parser = { parseRelatorio, serializar, resumo, soDigitos, parseData };
+globalThis.Parser = { parseRelatorio, serializar, resumo, soDigitos, parseData, vinculos, chaveAnilha, normNome };
 })();

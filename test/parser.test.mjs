@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import '../parser.js';
-const { parseRelatorio, serializar, resumo, soDigitos, parseData } = globalThis.Parser;
+const { parseRelatorio, serializar, resumo, soDigitos, parseData, vinculos, chaveAnilha } = globalThis.Parser;
 
 const txt = readFileSync(new URL('./relatorio-ficticio.txt', import.meta.url), 'utf8');
 
@@ -11,7 +11,7 @@ test('separa seções, cabeçalhos e linhas', () => {
   assert.deepEqual(Object.keys(r.secoes), [
     'Dados do Criador', 'Dados do Criadouro', 'Licenças Verificadas no Sistema',
     'Plantel', 'Tela de Solic. Anilha', 'Histórico de Operações',
-    'Transferências Solicitadas', 'Mensagens de Erro',
+    'Transferências Solicitadas', 'Mensagens de Erro', 'Transferências Recebidas',
   ]);
   assert.equal(r.secoes['Dados do Criadouro'].length, 0);
   assert.equal(r.secoes['Tela de Solic. Anilha'].length, 0);
@@ -73,4 +73,17 @@ test('mensagem quebrada em duas linhas vira uma linha só', () => {
 test('serializar e ler de novo devolve o mesmo relatório', () => {
   const r = parseRelatorio(txt);
   assert.deepEqual(parseRelatorio(serializar(r.secoes)), r);
+});
+
+test('vínculos: só transferências confirmadas, agrupadas por nome', () => {
+  const v = vinculos(parseRelatorio(txt));
+  assert.deepEqual(v, [
+    { nome: 'BELTRANO DE TESTE', recebidas: 0, enviadas: 1, ultima: '11/04/2017' },
+    { nome: 'Ciclano Exemplo', recebidas: 1, enviadas: 0, ultima: '01/03/2016' },
+  ]);
+});
+
+test('chave de anilha ignora espaços, pontuação e caixa', () => {
+  assert.equal(chaveAnilha('IBAMA OA 3,5 159443'), chaveAnilha('ibama oa 3.5  159443'));
+  assert.notEqual(chaveAnilha('IBAMA OA 3,5 159443'), chaveAnilha('IBAMA OA 3,5 159444'));
 });

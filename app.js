@@ -1,4 +1,4 @@
-const { parseRelatorio, serializar, resumo, soDigitos } = window.Parser;
+const { parseRelatorio, serializar, resumo, soDigitos, vinculos, chaveAnilha, normNome } = window.Parser;
 
 // ---------- utilitários ----------
 const $ = s => document.querySelector(s);
@@ -209,24 +209,77 @@ function telaLista() {
 }
 
 // ---------- ficha ----------
+// ---------- cruzamento entre criadores (por nome) e aves (por anilha) ----------
+const COLS_NOME = ['Nome do Doador', 'Nome do Receptor', 'Receptor'];
+const COLS_ANILHA = ['Código anilha', 'Anilha'];
+function indiceNomes() {
+  const idx = {};
+  for (const c of Object.values(db.criadores)) {
+    for (const n of new Set([normNome(c.nome), normNome(c.rel?.criador.nome)])) if (n) (idx[n] ||= []).push(c);
+  }
+  return idx;
+}
+let idxNomes = {};
+function linkNome(nome) {
+  if (!nome) return '';
+  const achados = idxNomes[normNome(nome)] || [];
+  if (!achados.length) return `${esc(nome)} <span class="tag">fora da base</span>`;
+  return achados.map(c => `<a href="#/c/${c.cpf}">${esc(nome)}</a>${achados.length > 1 ? ` <span class="muted peq">(${esc(fmtCpf(c.cpf))})</span>` : ''}`).join('<br>');
+}
+const linkAnilha = a => a ? `<a href="#/anilha/${encodeURIComponent(chaveAnilha(a))}">${esc(a)}</a>` : '';
+
 function tabela(rows, cols) {
   if (!rows?.length) return '<p class="muted peq">Nenhum registro.</p>';
   cols ||= [...new Set(rows.flatMap(Object.keys))].filter(k => !k.startsWith('_'));
+  const celula = (r, c) => COLS_NOME.includes(c) ? linkNome(r[c]) : COLS_ANILHA.includes(c) ? linkAnilha(r[c]) : esc(r[c]);
   return `<div class="tabela"><table><thead><tr>${cols.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>
-    ${rows.map(r => `<tr class="${/^inativ/i.test(r['Situação'] || '') ? 'inativa' : ''}">${cols.map(c => `<td>${esc(r[c])}</td>`).join('')}</tr>`).join('')}
+    ${rows.map(r => `<tr class="${/^inativ/i.test(r['Situação'] || '') ? 'inativa' : ''}">${cols.map(c => `<td>${celula(r, c)}</td>`).join('')}</tr>`).join('')}
     </tbody></table></div>`;
 }
+
+const COLS_DATA = ['Data', 'DATA_OPERACAO', 'Data do Recebimento', 'Data Recebimento', 'Data da Doação'];
+function telaAnilha(chave) {
+  idxNomes = indiceNomes();
+  const regs = [];
+  let especie = '', nomeAnilha = '';
+  for (const c of Object.values(db.criadores)) {
+    for (const [secao, rows] of Object.entries(c.rel?.secoes || {})) {
+      for (const r of rows) {
+        const col = COLS_ANILHA.find(k => chaveAnilha(r[k]) === chave && r[k]);
+        if (!col) continue;
+        nomeAnilha ||= r[col];
+        if (r['Nome Popular']) especie = `${r['Nome Popular']} (${r['Espécie']})`;
+        const data = COLS_DATA.map(k => r[k]).find(v => Parser.parseData(v)) || '';
+        const detalhe = r['Operação'] || r['ULTIMA_OPERACAO'] || r['Operação do Receptor'] || '';
+        const outro = r['Nome do Doador'] ? `de ${linkNome(r['Nome do Doador'])}` : r['Nome do Receptor'] || r.Receptor ? `para ${linkNome(r['Nome do Receptor'] || r.Receptor)}` : '';
+        regs.push({ data, c, secao, detalhe, outro, situacao: r['Situação'] || '' });
+      }
+    }
+  }
+  regs.sort((a, b) => (Parser.parseData(a.data) || 0) - (Parser.parseData(b.data) || 0));
+  app.innerHTML = `<p><a href="javascript:history.back()">← Voltar</a></p>
+    <div class="card"><h1>Anilha ${esc(nomeAnilha || chave)}</h1>
+      <p class="muted">${esc(especie || 'Espécie não identificada nos relatórios importados')}</p>
+      <p class="peq muted">Trajetória montada só com os relatórios já importados na sua base.</p></div>
+    <div class="card"><h2>Registros (${regs.length})</h2>${!regs.length ? '<p class="muted peq">Nenhum registro.</p>' : `
+      <div class="tabela"><table><thead><tr><th>Data</th><th>Criador</th><th>Onde</th><th>Operação</th><th>Contraparte</th></tr></thead><tbody>
+      ${regs.map(g => `<tr><td>${esc(g.data)}</td><td><a href="#/c/${g.c.cpf}">${esc(g.c.nome)}</a></td>
+        <td>${esc(g.secao)}${g.situacao ? ` (${esc(g.situacao)})` : ''}</td><td>${esc(g.detalhe)}</td><td>${g.outro}</td></tr>`).join('')}
+      </tbody></table></div>`}</div>`;
+  window.scrollTo(0, 0);
+}
 const COLS_PLANTEL = ['Situação', 'Nome Popular', 'Espécie', 'Sexo', 'Nascimento', 'Código anilha', 'Diâmetro anilha', 'Marcação', 'ULTIMA_OPERACAO', 'DATA_OPERACAO'];
-const PRINCIPAIS = ['Dados do Criador', 'Plantel', 'Histórico de Operações'];
+const PRINCIPAIS = ['Dados do Criador', 'Plantel', 'Histórico de Operações', 'Transferências Recebidas', 'Transferências Solicitadas'];
 
 function telaFicha(cpf) {
   const c = db.criadores[cpf];
   if (!c) { app.innerHTML = '<div class="card">Criador não encontrado. <a href="#/">Voltar</a></div>'; return; }
+  idxNomes = indiceNomes();
   const r = resumoDe(c);
   const end = [c.endereco, c.bairro, c.cidade, 'RS'].filter(Boolean).join(', ');
   const outras = c.rel ? Object.entries(c.rel.secoes).filter(([t]) => !PRINCIPAIS.includes(t)) : [];
   app.innerHTML = `
-    <p><a href="#/">← Criadores</a></p>
+    <p class="linha"><a href="#/">← Criadores</a> <a href="javascript:history.back()">← Voltar</a></p>
     <div class="card">
       <h1>${esc(c.nome)}</h1>
       <div class="grade">
@@ -266,6 +319,11 @@ function telaFicha(cpf) {
       ${r.alertas.map(a => `<div class="alerta-box">${esc(a.texto)}</div>`).join('')}
     </div>
     <div class="card"><h2>Plantel</h2>${tabela(c.rel.secoes.Plantel, COLS_PLANTEL)}</div>
+    <div class="card"><h2>Negociou com (transferências confirmadas)</h2>${tabela(vinculos(c.rel).map(v => ({
+      'Nome do Doador': v.nome, 'Recebeu dele': v.recebidas, 'Enviou para ele': v.enviadas, 'Última': v.ultima })))
+      .replace('<th>Nome do Doador</th>', '<th>Criador</th>')}</div>
+    <div class="card"><h2>Transferências recebidas</h2>${tabela(c.rel.secoes['Transferências Recebidas'])}</div>
+    <div class="card"><h2>Transferências solicitadas (enviadas)</h2>${tabela(c.rel.secoes['Transferências Solicitadas'])}</div>
     <div class="card"><h2>Fugas, roubos/furtos e óbitos</h2>${tabela(r.ocorrencias)}</div>
     <div class="card"><h2>Histórico de operações</h2>${tabela(c.rel.secoes['Histórico de Operações'])}</div>
     <div class="card"><h2>Outras seções do relatório</h2>
@@ -505,6 +563,7 @@ function rotear() {
   const h = location.hash;
   if (h.startsWith('#/c/')) return telaFicha(h.slice(4));
   if (h === '#/dados') return telaDados();
+  if (h.startsWith('#/anilha/')) return telaAnilha(decodeURIComponent(h.slice(9)));
   return telaLista();
 }
 window.addEventListener('hashchange', rotear);
