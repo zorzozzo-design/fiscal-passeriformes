@@ -148,10 +148,12 @@ function telaLista() {
       <p>Importe a planilha de criadores e os relatórios gerais do SISPASS em <a href="#/dados">Dados</a>.</p></div>`;
     return;
   }
+  const especies = [...new Set(todos.flatMap(c => (c.rel?.secoes.Plantel || []).map(a => a['Nome Popular'])).filter(Boolean))].sort();
   const cidades = [...new Set(todos.map(c => c.cidade).filter(Boolean))].sort();
   app.innerHTML = `
     <div class="filtros">
-      <input id="q" type="search" placeholder="Nome, CPF, registro, anilha ou endereço" value="${esc(filtro.q)}">
+      <input id="q" type="search" list="especies" placeholder="Nome, CPF, anilha, endereço ou ave (ex.: cardeal-amarelo)" value="${esc(filtro.q)}">
+      <datalist id="especies">${especies.map(e => `<option value="${esc(e)}">`).join('')}</datalist>
       <select id="cidade"><option value="">Todas as cidades</option>
         ${cidades.map(c => `<option ${c === filtro.cidade ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
       <select id="status">
@@ -164,6 +166,9 @@ function telaLista() {
     <ul id="lista" class="lista card" style="padding:0"></ul>`;
   const desenhar = () => {
     const q = norm(filtro.q), qd = soDigitos(filtro.q);
+    // Aves ativas cuja espécie (nome popular ou científico) contém o termo buscado.
+    const avesDe = c => q.length < 3 ? [] : (c.rel?.secoes.Plantel || [])
+      .filter(a => /^ativ/i.test(a['Situação'] || '') && norm(`${a['Nome Popular']} ${a['Espécie']}`).includes(q));
     const vis = todos.filter(c => {
       if (filtro.cidade && c.cidade !== filtro.cidade) return false;
       const r = resumoDe(c);
@@ -175,12 +180,17 @@ function telaLista() {
       if (!q) return true;
       if (qd.length >= 3 && (c.cpf.includes(qd) || String(c.registro).includes(qd))) return true;
       const anilhas = c.rel?.secoes.Plantel?.map(a => a['Código anilha']).join(' ') || '';
-      return norm(`${c.nome} ${c.endereco} ${c.bairro} ${anilhas}`).includes(q);
+      return avesDe(c).length > 0 || norm(`${c.nome} ${c.endereco} ${c.bairro} ${anilhas}`).includes(q);
     });
-    $('#cont').textContent = `${vis.length} de ${todos.length} criadores`;
+    const comAve = vis.filter(c => avesDe(c).length), totalAves = comAve.reduce((n, c) => n + avesDe(c).length, 0);
+    $('#cont').innerHTML = `${vis.length} de ${todos.length} criadores` + (totalAves
+      ? `<br><b>${comAve.length} criador(es) com ${totalAves} ave(s) ativa(s) de "${esc(filtro.q)}"</b> <span class="muted">(só entre os ${todos.filter(c => c.rel).length} com relatório importado)</span>` : '');
     $('#lista').innerHTML = vis.map(c => {
       const r = resumoDe(c);
+      const porEspecie = {};
+      for (const a of avesDe(c)) porEspecie[a['Nome Popular']] = (porEspecie[a['Nome Popular']] || 0) + 1;
       const tags = [
+        ...Object.entries(porEspecie).map(([e, n]) => `<span class="tag ok"><b>${n}× ${esc(e)}</b></span>`),
         r ? `<span class="tag">${r.ativas} ave(s) ativa(s)</span>` : '<span class="tag aviso">sem relatório</span>',
         r?.alertas.length ? `<span class="tag alerta">${r.alertas.length} alerta(s)</span>` : '',
         r?.ocorrencias.length ? `<span class="tag alerta">${r.ocorrencias.length} fuga/roubo/óbito</span>` : '',
