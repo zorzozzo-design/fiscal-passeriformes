@@ -1,4 +1,4 @@
-const { parseRelatorio, serializar, resumo, soDigitos, vinculos, chaveAnilha, normNome } = window.Parser;
+const { parseRelatorio, serializar, resumo, soDigitos, vinculos, chaveAnilha, normNome, obitos, idadesPorEspecie } = window.Parser;
 
 // ---------- utilitários ----------
 const $ = s => document.querySelector(s);
@@ -237,6 +237,33 @@ function tabela(rows, cols) {
     </tbody></table></div>`;
 }
 
+const obitosDaBase = () => obitos(Object.values(db.criadores).filter(c => c.rel).map(c => ({ cpf: c.cpf, rel: c.rel })));
+const fmtIdade = i => i === null ? 'desconhecida' : `${String(i).replace('.', ',')} anos`;
+const tabelaObitos = lista => !lista.length ? '<p class="muted peq">Nenhum óbito declarado.</p>' : `
+  <div class="tabela"><table><thead><tr><th>Data do óbito</th><th>Criador</th><th>Anilha</th><th>Ave</th><th>Nascimento</th><th>Idade</th></tr></thead><tbody>
+  ${lista.map(o => `<tr><td>${esc(o.data)}</td><td><a href="#/c/${o.cpf}">${esc(db.criadores[o.cpf]?.nome)}</a></td><td>${linkAnilha(o.anilha)}</td>
+    <td>${esc(o.nomePopular || '?')}${o.especie ? ` <span class="muted">(${esc(o.especie)})</span>` : ''}</td><td>${esc(o.nascimento || '?')}</td><td>${fmtIdade(o.idadeAnos)}</td></tr>`).join('')}
+  </tbody></table></div>`;
+
+function telaIdades() {
+  const o = obitosDaBase().sort((a, b) => Parser.parseData(b.data) - Parser.parseData(a.data));
+  const e = idadesPorEspecie(o);
+  const comIdade = o.filter(x => x.idadeAnos !== null);
+  const media = comIdade.length ? Math.round(comIdade.reduce((n, x) => n + x.idadeAnos, 0) / comIdade.length * 10) / 10 : null;
+  const n = v => v === null ? '—' : String(v).replace('.', ',');
+  app.innerHTML = `<div class="card"><h1>Idade das aves no óbito</h1>
+      <div class="grade"><div><span>Óbitos declarados</span>${o.length}</div><div><span>Com idade conhecida</span>${comIdade.length}</div>
+        <div><span>Idade média geral</span>${media === null ? '—' : fmtIdade(media)}</div>
+        <div><span>Criadores com relatório</span>${Object.values(db.criadores).filter(c => c.rel).length}</div></div>
+      <p class="peq muted">Calculado só com os relatórios importados. A idade usa o nascimento do Plantel, procurado pela anilha em toda a base; sem nascimento, a ave fica fora da média.</p></div>
+    <div class="card"><h2>Por espécie</h2>${!e.length ? '<p class="muted peq">Nenhum óbito declarado.</p>' : `
+      <div class="tabela"><table><thead><tr><th>Espécie</th><th>Óbitos</th><th>Com idade</th><th>Média (anos)</th><th>Mín.</th><th>Máx.</th></tr></thead><tbody>
+      ${e.map(x => `<tr><td>${esc(x.especie)}</td><td>${x.obitos}</td><td>${x.comIdade}</td><td>${n(x.media)}</td><td>${n(x.min)}</td><td>${n(x.max)}</td></tr>`).join('')}
+      </tbody></table></div>`}</div>
+    <div class="card"><h2>Óbitos</h2>${tabelaObitos(o)}</div>`;
+  window.scrollTo(0, 0);
+}
+
 const COLS_DATA = ['Data', 'DATA_OPERACAO', 'Data do Recebimento', 'Data Recebimento', 'Data da Doação'];
 function telaAnilha(chave) {
   idxNomes = indiceNomes();
@@ -322,6 +349,7 @@ function telaFicha(cpf) {
     <div class="card"><h2>Negociou com (transferências confirmadas)</h2>${tabela(vinculos(c.rel).map(v => ({
       'Nome do Doador': v.nome, 'Recebeu dele': v.recebidas, 'Enviou para ele': v.enviadas, 'Última': v.ultima })))
       .replace('<th>Nome do Doador</th>', '<th>Criador</th>')}</div>
+    <div class="card"><h2>Óbitos e idade da ave</h2>${tabelaObitos(obitosDaBase().filter(o => o.cpf === c.cpf))}</div>
     <div class="card"><h2>Transferências recebidas</h2>${tabela(c.rel.secoes['Transferências Recebidas'])}</div>
     <div class="card"><h2>Transferências solicitadas (enviadas)</h2>${tabela(c.rel.secoes['Transferências Solicitadas'])}</div>
     <div class="card"><h2>Fugas, roubos/furtos e óbitos</h2>${tabela(r.ocorrencias)}</div>
@@ -402,6 +430,8 @@ function exportarPlanilha() {
   aba('Criadores', criadores);
   aba('Plantel', comRel.flatMap(c => comCriador(c, c.rel.secoes.Plantel)));
   aba('Fugas-Roubos-Óbitos', comRel.flatMap(c => comCriador(c, resumoDe(c).ocorrencias)));
+  aba('Óbitos-Idades', obitosDaBase().map(o => ({ CPF: fmtCpf(o.cpf), Criador: db.criadores[o.cpf]?.nome, 'Data do óbito': o.data,
+    Anilha: o.anilha, Ave: o.nomePopular, 'Espécie': o.especie, Nascimento: o.nascimento, 'Idade (anos)': o.idadeAnos ?? '' })));
   aba('Histórico', comRel.flatMap(c => comCriador(c, c.rel.secoes['Histórico de Operações'])));
   aba('_relatorios', relatorios);
   XLSX.writeFile(wb, `fiscal-passeriformes-${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -563,6 +593,7 @@ function rotear() {
   const h = location.hash;
   if (h.startsWith('#/c/')) return telaFicha(h.slice(4));
   if (h === '#/dados') return telaDados();
+  if (h === '#/idades') return telaIdades();
   if (h.startsWith('#/anilha/')) return telaAnilha(decodeURIComponent(h.slice(9)));
   return telaLista();
 }

@@ -76,6 +76,39 @@ function vinculos(rel) {
   return Object.values(mapa).sort((a, b) => normNome(a.nome).localeCompare(normNome(b.nome)));
 }
 
+// Óbitos declarados no Histórico, com a idade calculada pela data de nascimento do Plantel.
+// A ave pode ter nascido em outro criador, então o nascimento é procurado em todos os relatórios (lista de { cpf, rel }).
+const anosEntre = (a, b) => Math.round((b - a) / (365.25 * 864e5) * 10) / 10;
+function obitos(lista) {
+  const nasc = {};
+  for (const { rel } of lista) for (const a of rel.secoes.Plantel || []) {
+    const k = chaveAnilha(a['Código anilha']);
+    if (k && parseData(a.Nascimento) && !nasc[k]) nasc[k] = a;
+  }
+  const out = [];
+  for (const { cpf, rel } of lista) for (const h of rel.secoes['Histórico de Operações'] || []) {
+    if (!/[óo]bito/i.test(h['Operação'] || '') || !h.Anilha) continue;
+    const proprio = (rel.secoes.Plantel || []).find(a => chaveAnilha(a['Código anilha']) === chaveAnilha(h.Anilha) && parseData(a.Nascimento));
+    const ave = proprio || nasc[chaveAnilha(h.Anilha)];
+    out.push({
+      cpf, anilha: h.Anilha, data: h.Data.slice(0, 10),
+      nomePopular: ave?.['Nome Popular'] || '', especie: ave?.['Espécie'] || '', nascimento: ave?.Nascimento || '',
+      idadeAnos: ave ? anosEntre(parseData(ave.Nascimento), parseData(h.Data)) : null,
+    });
+  }
+  return out;
+}
+function idadesPorEspecie(lista) {
+  const g = {};
+  for (const o of lista) (g[o.nomePopular || 'Espécie não identificada'] ||= []).push(o.idadeAnos);
+  return Object.entries(g).map(([especie, idades]) => {
+    const ok = idades.filter(i => i !== null);
+    return { especie, obitos: idades.length, comIdade: ok.length,
+      media: ok.length ? Math.round(ok.reduce((a, b) => a + b, 0) / ok.length * 10) / 10 : null,
+      min: ok.length ? Math.min(...ok) : null, max: ok.length ? Math.max(...ok) : null };
+  }).sort((a, b) => b.obitos - a.obitos || a.especie.localeCompare(b.especie));
+}
+
 // Gera de volta o texto no formato do relatório (usado para guardar na planilha e recuperar depois).
 function serializar(secoes) {
   return Object.entries(secoes).map(([titulo, rows]) => {
@@ -120,5 +153,5 @@ function resumo(rel, cfg, hoje = new Date()) {
   return { ativas: ativas.length, total: plantel.length, ocorrencias, ultimaLicenca, ultimaOperacao, alertas };
 }
 
-globalThis.Parser = { parseRelatorio, serializar, resumo, soDigitos, parseData, vinculos, chaveAnilha, normNome };
+globalThis.Parser = { parseRelatorio, serializar, resumo, soDigitos, parseData, vinculos, chaveAnilha, normNome, obitos, idadesPorEspecie };
 })();
