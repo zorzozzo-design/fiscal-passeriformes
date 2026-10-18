@@ -444,33 +444,24 @@ function htmlItem(c, i, comCriador = false) {
       : i.feito ? '<button class="sec b-desfazer" type="button">Desfazer</button>' : ''}
   </div>`;
 }
-// Cards da ficha: o título abre/fecha o conteúdo. A escolha fica lembrada neste navegador (só conveniência).
+// Preferências de tela, guardadas só neste navegador.
 const lerPref = (k, padrao) => { try { return JSON.parse(localStorage.getItem(k)) ?? padrao; } catch { return padrao; } };
 const gravarPref = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* armazenamento indisponível */ } };
-function tornarDobraveis(abertosPorPadrao) {
-  const est = lerPref('fp-secoes', {});
-  const cards = [];
-  for (const card of app.querySelectorAll('.card')) {
-    const h = card.querySelector(':scope > h2');
-    if (!h || card.id === 'topo-ficha') continue;
-    const chave = h.textContent.replace(/\(.*?\)/g, '').trim();
-    const corpo = document.createElement('div');
-    corpo.className = 'corpo';
-    while (h.nextSibling) corpo.appendChild(h.nextSibling);
-    card.append(corpo);
-    card.classList.add('dobra');
-    h.tabIndex = 0;
-    h.setAttribute('role', 'button');
-    const abrir = aberto => { card.classList.toggle('fechado', !aberto); h.setAttribute('aria-expanded', aberto); };
-    abrir(chave in est ? est[chave] : abertosPorPadrao.some(p => chave.startsWith(p)));
-    const alternar = () => { const aberto = card.classList.contains('fechado'); abrir(aberto); est[chave] = aberto; gravarPref('fp-secoes', est); };
-    h.onclick = alternar;
-    h.onkeydown = ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); alternar(); } };
-    cards.push({ chave, abrir });
-  }
-  const todos = aberto => { for (const c of cards) { c.abrir(aberto); est[c.chave] = aberto; } gravarPref('fp-secoes', est); };
-  $('#b-expandir')?.addEventListener('click', () => todos(true));
-  $('#b-recolher')?.addEventListener('click', () => todos(false));
+// Abas da ficha: mostra uma de cada vez e lembra a última escolhida (só conveniência).
+function ligarAbas() {
+  const abrir = k => {
+    for (const b of document.querySelectorAll('.aba-b')) b.setAttribute('aria-selected', b.dataset.aba === k);
+    for (const a of document.querySelectorAll('.aba')) a.hidden = a.dataset.aba !== k;
+    gravarPref('fp-aba', k);
+    document.querySelector(`.aba-b[data-aba="${k}"]`)?.scrollIntoView({ inline: 'center', block: 'nearest' });
+  };
+  const atual = document.querySelector('.aba-b[aria-selected="true"]');
+  if (atual) $('.abas').scrollLeft = atual.offsetLeft - $('.abas').clientWidth / 2 + atual.clientWidth / 2;
+  for (const b of document.querySelectorAll('.aba-b')) b.onclick = () => {
+    abrir(b.dataset.aba);
+    const topo = $('.abas').getBoundingClientRect().top;
+    if (topo < 0 || topo > innerHeight / 2) $('.conteudo').scrollIntoView({ block: 'start' });
+  };
 }
 // Card do topo fixado: fica preso no alto, compacto (só nome e indicadores).
 function ligarFixar() {
@@ -480,7 +471,11 @@ function ligarFixar() {
     card.classList.toggle('fixado', f);
     b.setAttribute('aria-pressed', f);
     b.textContent = f ? '📌 Soltar' : '📌 Fixar';
-    document.documentElement.style.setProperty('--topo-h', $('.topo').offsetHeight + 'px');
+    const raiz = document.documentElement.style;
+    raiz.setProperty('--topo-h', $('.topo').offsetHeight + 'px');
+    // No celular, as abas param logo abaixo do card fixado.
+    const perfil = $('.perfil');
+    raiz.setProperty('--fixo-h', f && perfil && getComputedStyle(perfil).position === 'sticky' && innerWidth < 960 ? perfil.offsetHeight + 'px' : '0px');
   };
   aplicar(lerPref('fp-fixar', false));
   b.onclick = () => { const f = !card.classList.contains('fixado'); gravarPref('fp-fixar', f); aplicar(f); };
@@ -628,9 +623,47 @@ function telaFicha(cpf) {
   const abertos = e.abertos, resolvidos = e.itens.filter(i => !i.aberto);
   const vincTxt = Object.entries({ email: 'E-mail', fone: 'Telefone', ip: 'IP de acesso', endereco: 'Endereço' })
     .flatMap(([t, rot]) => e.vinc[t].map(v => `<div class="peq"><b>${rot} ${esc(v.chave)}</b>: ${v.outros.map(x => `<a href="#/c/${x}">${esc(db.criadores[x]?.nome)}</a>`).join(', ')}</div>`)).join('');
+  const semRel = `<div class="card"><h2>Sem relatório do SISPASS</h2>
+      <p class="muted">Gere o relatório geral deste CPF no SISPASS e importe em <a href="#/dados">Dados</a>.</p></div>`;
+  const card = (titulo, corpo) => `<div class="card"><h2>${titulo}</h2>${corpo}</div>`;
+  const verif = `<div class="card"><h2>Verificação normativa (${abertos.length} em aberto)</h2>
+      ${!c.rel ? '<p class="muted">Importe o relatório do SISPASS para verificar.</p>' : !abertos.length ? '<p class="muted">Nenhuma pendência em aberto.</p>' : ''}
+      ${DESTINOS.map(d => abertos.filter(i => i.destino === d)).filter(l => l.length)
+        .map(l => `<h2 class="dest-tit">${esc(DESTINO_TXT[l[0].destino])}</h2>${l.map(i => htmlItem(c, i)).join('')}`).join('')}
+      ${resolvidos.length ? `<details><summary>Verificados ou resolvidos (${resolvidos.length})</summary>${resolvidos.map(i => htmlItem(c, i)).join('')}</details>` : ''}
+    </div>`;
+  const vistorias = !e.vistorias.length ? '' : card(`Vistorias (${e.vistorias.length})`, e.vistorias.map(v => `<div class="item">
+      <b>${Normas.fmt(new Date(v.data + 'T12:00'))}: ${RESULTADO[v.resultado] || v.resultado}</b>
+      ${v.maneja === 'outro' ? `<div class="peq">Aves manejadas por: ${esc(v.manejaNome || 'outra pessoa')}</div>` : v.maneja === 'titular' ? '<div class="peq">Titular maneja as aves</div>' : ''}
+      ${v.graves?.length ? `<div class="peq">Infração grave: art. 62, §2º, ${v.graves.join(', ')}</div>` : ''}
+      ${v.irregular?.length ? `<div class="peq">${v.irregular.length} item(ns) constatado(s) irregular(es)</div>` : ''}
+      ${v.obs ? `<div class="peq" style="white-space:pre-wrap">${esc(v.obs)}</div><button class="sec b-copiar-txt" type="button" data-txt="${esc(v.obs)}">Copiar observação</button>` : ''}
+      <button class="sec b-del-vist" type="button" data-id="${esc(v.id)}">Excluir</button></div>`).join(''));
+  const transf = r ? (c.rel.secoes['Transferências Recebidas'] || []).length + (c.rel.secoes['Transferências Solicitadas'] || []).length : '';
+  // Abas da coluna direita: [chave, rótulo, contador, conteúdo]
+  const ABAS = [
+    ['verif', 'Verificação', abertos.length, verif],
+    ['vistoria', 'Vistoria', e.vistorias.length, formVistoria(c, e) + vistorias + (c.notas ? card('Anotações antigas', `<p class="peq">${esc(c.notas)}</p>`) : '')],
+    ['msg', 'Mensagens', '', cardMensagens(c, e) || card('Mensagens', '<p class="muted">Sem itens para montar mensagem.</p>')],
+    ['plantel', 'Plantel', r ? r.ativas : '', !r ? semRel : card('Resumo do SISPASS', `<div class="grade">
+        <div><span>Aves ativas</span>${r.ativas} de ${r.total}</div>
+        <div><span>Última licença (validade)</span>${esc(r.ultimaLicenca || '—')}</div>
+        <div><span>Última operação</span>${esc(r.ultimaOperacao || '—')}</div>
+        <div><span>Relatório importado</span>${fmtDH(c.rel.importadoEm)}</div></div>`) + card('Plantel', tabela(plantel, ['Ameaça', ...COLS_PLANTEL]))],
+    ['mov', 'Movimentação', transf, !r ? semRel : card('Negociou com (transferências confirmadas)', tabela(vinculos(c.rel).map(v => ({
+        'Nome do Doador': v.nome, 'Recebeu dele': v.recebidas, 'Enviou para ele': v.enviadas, 'Última': v.ultima }))).replace('<th>Nome do Doador</th>', '<th>Criador</th>'))
+      + card('Transferências recebidas', tabela(c.rel.secoes['Transferências Recebidas']))
+      + card('Transferências solicitadas (enviadas)', tabela(c.rel.secoes['Transferências Solicitadas']))],
+    ['ocorr', 'Ocorrências', r ? r.ocorrencias.length : '', !r ? semRel : card('Fugas, roubos/furtos e óbitos', tabela(r.ocorrencias))
+      + card('Óbitos e idade da ave', tabelaObitos(obitosDaBase().filter(o => o.cpf === c.cpf)))],
+    ['hist', 'Histórico', r ? (c.rel.secoes['Histórico de Operações'] || []).length : '', !r ? semRel : card('Histórico de operações', tabela(c.rel.secoes['Histórico de Operações']))
+      + card('Outras seções do relatório', outras.map(([t, rows]) => `<details><summary>${esc(t)} <span class="muted peq">(${rows.length})</span></summary>${tabela(rows)}</details>`).join(''))],
+  ];
+  const abaAtual = ABAS.some(a => a[0] === lerPref('fp-aba', '')) ? lerPref('fp-aba', '') : 'verif';
   app.innerHTML = `
-    <p class="linha"><a href="#/">← Criadores</a> <a href="javascript:history.back()">← Voltar</a>
-      <span style="flex:1"></span><button class="sec" id="b-expandir" type="button">Expandir tudo</button><button class="sec" id="b-recolher" type="button">Recolher tudo</button></p>
+    <p class="linha"><a href="#/">← Criadores</a> <a href="javascript:history.back()">← Voltar</a></p>
+    <div class="ficha">
+      <aside class="perfil">
     <div class="card ${e.ameacadas.length ? 'ameacado' : ''}" id="topo-ficha">
       <div class="linha"><h1 style="flex:1">${esc(c.nome)}</h1><button class="sec" id="b-fixar" type="button" aria-pressed="false">📌 Fixar</button></div>
       ${e.ameacadas.length ? `<p>${chip(`${e.ameacadas.length} ave(s) de espécie ameaçada`, 'ameaca')}</p>` : ''}
@@ -663,51 +696,15 @@ function telaFicha(cpf) {
       ${e.ameacadas.map(a => `<div class="peq">${chipAmeaca(a)} <b>${esc(a.popular)}</b> <i>${esc(a.especie)}</i> · ${linkAnilha(a.anilha)}</div>`).join('')}
       <p class="muted peq">RS: Decreto 51.797/2014. BR: Portaria MMA 444/2014 (redação da Portaria MMA 1.704/2026).</p></div>` : ''}
 
-    <div class="card"><h2>Verificação normativa (${abertos.length} em aberto)</h2>
-      ${!c.rel ? '<p class="muted">Importe o relatório do SISPASS para verificar.</p>' : !abertos.length ? '<p class="muted">Nenhuma pendência em aberto.</p>' : ''}
-      ${DESTINOS.map(d => abertos.filter(i => i.destino === d)).filter(l => l.length)
-        .map(l => `<h2 class="dest-tit">${esc(DESTINO_TXT[l[0].destino])}</h2>${l.map(i => htmlItem(c, i)).join('')}`).join('')}
-      ${resolvidos.length ? `<details><summary>Verificados ou resolvidos (${resolvidos.length})</summary>${resolvidos.map(i => htmlItem(c, i)).join('')}</details>` : ''}
-    </div>
-
-    ${cardMensagens(c, e)}
-    ${vincTxt ? `<div class="card"><h2>Vínculos de cadastro com outros criadores</h2>${vincTxt}</div>` : ''}
-
-    ${formVistoria(c, e)}
-    ${e.vistorias.length ? `<div class="card"><h2>Vistorias (${e.vistorias.length})</h2>${e.vistorias.map(v => `<div class="item">
-      <b>${Normas.fmt(new Date(v.data + 'T12:00'))}: ${RESULTADO[v.resultado] || v.resultado}</b>
-      ${v.maneja === 'outro' ? `<div class="peq">Aves manejadas por: ${esc(v.manejaNome || 'outra pessoa')}</div>` : v.maneja === 'titular' ? '<div class="peq">Titular maneja as aves</div>' : ''}
-      ${v.graves?.length ? `<div class="peq">Infração grave: art. 62, §2º, ${v.graves.join(', ')}</div>` : ''}
-      ${v.irregular?.length ? `<div class="peq">${v.irregular.length} item(ns) constatado(s) irregular(es)</div>` : ''}
-      ${v.obs ? `<div class="peq" style="white-space:pre-wrap">${esc(v.obs)}</div><button class="sec b-copiar-txt" type="button" data-txt="${esc(v.obs)}">Copiar observação</button>` : ''}
-      <button class="sec b-del-vist" type="button" data-id="${esc(v.id)}">Excluir</button></div>`).join('')}</div>` : ''}
-    ${c.notas ? `<div class="card"><h2>Anotações antigas</h2><p class="peq">${esc(c.notas)}</p></div>` : ''}
-
-    ${!r ? `<div class="card"><h2>Sem relatório do SISPASS</h2>
-      <p class="muted">Gere o relatório geral deste CPF no SISPASS e importe em <a href="#/dados">Dados</a>.</p></div>` : `
-    <div class="card">
-      <h2>Resumo do SISPASS</h2>
-      <div class="grade">
-        <div><span>Aves ativas</span>${r.ativas} de ${r.total}</div>
-        <div><span>Última licença (validade)</span>${esc(r.ultimaLicenca || '—')}</div>
-        <div><span>Última operação</span>${esc(r.ultimaOperacao || '—')}</div>
-        <div><span>Relatório importado</span>${fmtDH(c.rel.importadoEm)}</div>
-      </div>
-    </div>
-    <div class="card"><h2>Plantel</h2>${tabela(plantel, ['Ameaça', ...COLS_PLANTEL])}</div>
-    <div class="card"><h2>Negociou com (transferências confirmadas)</h2>${tabela(vinculos(c.rel).map(v => ({
-      'Nome do Doador': v.nome, 'Recebeu dele': v.recebidas, 'Enviou para ele': v.enviadas, 'Última': v.ultima })))
-      .replace('<th>Nome do Doador</th>', '<th>Criador</th>')}</div>
-    <div class="card"><h2>Óbitos e idade da ave</h2>${tabelaObitos(obitosDaBase().filter(o => o.cpf === c.cpf))}</div>
-    <div class="card"><h2>Transferências recebidas</h2>${tabela(c.rel.secoes['Transferências Recebidas'])}</div>
-    <div class="card"><h2>Transferências solicitadas (enviadas)</h2>${tabela(c.rel.secoes['Transferências Solicitadas'])}</div>
-    <div class="card"><h2>Fugas, roubos/furtos e óbitos</h2>${tabela(r.ocorrencias)}</div>
-    <div class="card"><h2>Histórico de operações</h2>${tabela(c.rel.secoes['Histórico de Operações'])}</div>
-    <div class="card"><h2>Outras seções do relatório</h2>
-      ${outras.map(([t, rows]) => `<details><summary>${esc(t)} <span class="muted peq">(${rows.length})</span></summary>${tabela(rows)}</details>`).join('')}
-    </div>`}`;
+    ${vincTxt ? card('Vínculos de cadastro com outros criadores', vincTxt) : ''}
+      </aside>
+      <section class="conteudo">
+        <div class="abas" role="tablist">${ABAS.map(([k, t, n]) => `<button role="tab" type="button" class="aba-b" data-aba="${k}" aria-selected="${k === abaAtual}">${t}${n !== '' ? ` <span class="cont">${n}</span>` : ''}</button>`).join('')}</div>
+        ${ABAS.map(([k, , , h]) => `<div class="aba" data-aba="${k}" role="tabpanel" ${k === abaAtual ? '' : 'hidden'}>${h}</div>`).join('')}
+      </section>
+    </div>`;
   const recarregar = () => { const y = window.scrollY; telaFicha(cpf); window.scrollTo(0, y); };
-  tornarDobraveis(['Aves de espécies ameaçadas', 'Verificação normativa', 'Plantel', 'Vínculos de cadastro', 'Sem relatório']);
+  ligarAbas();
   ligarFixar();
   ligarMensagens(c, e);
   const obsLink = () => { $('#v-obs-whats').href = 'https://wa.me/?text=' + encodeURIComponent($('#v-obs').value); };

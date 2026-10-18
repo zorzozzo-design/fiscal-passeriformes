@@ -90,14 +90,35 @@ nav { overflow-x: auto; }
 .b-total { background: var(--borda); } .b-valor { background: var(--pri); min-width: 2px; }
 .b-num { font-variant-numeric: tabular-nums; font-weight: 600; }
 @media (max-width: 420px) { nav { gap: 8px; font-size: .88rem; } nav button { padding: 6px 8px; } .topo { padding: 8px 10px; gap: 8px; } }
-.card.dobra > h2 { cursor: pointer; display: flex; align-items: center; gap: 8px; margin: 0; }
-.card.dobra > h2::before { content: '▾'; color: var(--muted); transition: transform .15s; }
-.card.dobra.fechado > h2::before { transform: rotate(-90deg); }
-.card.dobra > .corpo { margin-top: 10px; }
-.card.dobra.fechado > .corpo { display: none; }
-#topo-ficha.fixado { position: sticky; top: var(--topo-h, 56px); z-index: 4; box-shadow: 0 6px 16px rgba(0, 0, 0, .12); }
+#topo-ficha.fixado { box-shadow: 0 6px 16px rgba(0, 0, 0, .12); }
+/* Celular: com o card fixado, a coluna de perfil inteira fica presa no topo, mostrando só o card. */
+@media (max-width: 959px) {
+  .perfil:has(#topo-ficha.fixado) { position: sticky; top: var(--topo-h, 56px); z-index: 4; }
+  .perfil:has(#topo-ficha.fixado) > :not(#topo-ficha) { display: none; }
+  .perfil:has(#topo-ficha.fixado) #topo-ficha { margin-bottom: 0; }
+}
 #topo-ficha.fixado .det { display: none; }
 #topo-ficha.fixado h1 { font-size: 1.1rem; }
 #topo-ficha.fixado .sits { margin-top: 4px; }
 #topo-ficha.fixado .sit { padding: 4px 8px; }
 .frases { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; } .frases button { font-size: .8rem; padding: 5px 9px; font-weight: 500; text-align: left; }
+
+/* Ficha: perfil à esquerda (fixo) e abas à direita; no celular, empilhado. */
+main:has(.ficha) { max-width: 1320px; }
+.ficha { display: grid; gap: 14px; align-items: start; }
+.perfil .card, .conteudo .card { margin-bottom: 12px; }
+.abas { position: sticky; top: calc(var(--topo-h, 56px) + var(--fixo-h, 0px)); z-index: 3; display: flex; gap: 6px; overflow-x: auto; padding: 8px 0; background: var(--bg); margin-bottom: 4px; }
+.aba-b { flex: 0 0 auto; background: var(--card); color: var(--txt); border: 1px solid var(--borda); border-radius: 99px; padding: 7px 12px; font-weight: 600; }
+.aba-b[aria-selected="true"] { background: var(--pri); color: var(--pri-txt); border-color: var(--pri); }
+.aba-b .cont { display: inline-block; min-width: 1.4em; padding: 0 5px; border-radius: 99px; background: var(--bg); color: var(--txt); font-size: .75rem; text-align: center; }
+.aba-b[aria-selected="true"] .cont { background: var(--pri-txt); color: var(--pri); }
+@media (min-width: 960px) {
+  .ficha { grid-template-columns: minmax(300px, 380px) 1fr; }
+  .perfil { position: sticky; top: calc(var(--topo-h, 56px) + 12px); max-height: calc(100vh - var(--topo-h, 56px) - 24px); overflow-y: auto; }
+  .perfil .sits { grid-template-columns: 1fr 1fr; }
+  #b-fixar { display: none; }
+  #topo-ficha.fixado { position: static; box-shadow: none; }
+  #topo-ficha.fixado .det { display: block; }
+  .abas { top: var(--topo-h, 56px); }
+}
+.ficha > * { min-width: 0; }
