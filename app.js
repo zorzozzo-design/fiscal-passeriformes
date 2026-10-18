@@ -17,6 +17,8 @@ const b64 = buf => {
 };
 const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
 
+const INDICIOS = { zerado: 'plantel zerado com movimentação', saidaRapida: 'ave recebida e logo baixada', semDestino: 'ave recebida sem destino',
+  fugas: 'fugas repetidas', movAlta: 'movimentação alta', semLicenca: 'operação sem licença' };
 const STATUS = { '': 'Não visitado', regular: 'Visitado: regular', irregular: 'Visitado: irregular', naoloc: 'Não localizado' };
 
 // ---------- armazenamento criptografado (IndexedDB + AES-GCM) ----------
@@ -157,7 +159,7 @@ function telaLista() {
       <select id="cidade"><option value="">Todas as cidades</option>
         ${cidades.map(c => `<option ${c === filtro.cidade ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
       <select id="status">
-        ${[['', 'Todos'], ['semrel', 'Sem relatório'], ['alerta', 'Com alerta'], ['ocorr', 'Com fuga/roubo/óbito'],
+        ${[['', 'Todos'], ['semrel', 'Sem relatório'], ['alerta', 'Com alerta ou indício'], ['ocorr', 'Com fuga/roubo/óbito'], ...Object.entries(INDICIOS).map(([k, t]) => ['ind:' + k, 'Indício: ' + t]),
            ['pendente', 'Não visitados'], ['visitado', 'Visitados']]
           .map(([v, t]) => `<option value="${v}" ${v === filtro.status ? 'selected' : ''}>${t}</option>`).join('')}
       </select>
@@ -174,6 +176,7 @@ function telaLista() {
       const r = resumoDe(c);
       if (filtro.status === 'semrel' && c.rel) return false;
       if (filtro.status === 'alerta' && !r?.alertas.length) return false;
+      if (filtro.status.startsWith('ind:') && !r?.alertas.some(a => a.tipo === filtro.status.slice(4))) return false;
       if (filtro.status === 'ocorr' && !r?.ocorrencias.length) return false;
       if (filtro.status === 'pendente' && c.fisc?.status) return false;
       if (filtro.status === 'visitado' && !c.fisc?.status) return false;
@@ -343,7 +346,10 @@ function telaFicha(cpf) {
         <div><span>Última operação</span>${esc(r.ultimaOperacao || '—')}</div>
         <div><span>Relatório importado</span>${fmtDH(c.rel.importadoEm)}</div>
       </div>
-      ${r.alertas.map(a => `<div class="alerta-box">${esc(a.texto)}</div>`).join('')}
+      ${r.alertas.filter(a => !INDICIOS[a.tipo]).map(a => `<div class="alerta-box">${esc(a.texto)}</div>`).join('')}
+      ${r.alertas.some(a => INDICIOS[a.tipo]) ? `<h2 style="margin-top:12px">Indícios para verificar</h2>
+        <p class="muted peq">Padrões que merecem conferência. Não são prova de irregularidade.</p>
+        ${r.alertas.filter(a => INDICIOS[a.tipo]).map(a => `<div class="alerta-box"><b>${esc(INDICIOS[a.tipo])}:</b> ${esc(a.texto)}</div>`).join('')}` : ''}
     </div>
     <div class="card"><h2>Plantel</h2>${tabela(c.rel.secoes.Plantel, COLS_PLANTEL)}</div>
     <div class="card"><h2>Negociou com (transferências confirmadas)</h2>${tabela(vinculos(c.rel).map(v => ({
@@ -364,7 +370,8 @@ function telaFicha(cpf) {
     c.fisc = { status: $('#st').value, obs: $('#obs').value, atualizadoEm: agora() };
     sujos.add(c.cpf);
     await salvar();
-    $('#salvo').textContent = 'Salvo em ' + fmtDH(c.fisc.atualizadoEm);
+    const sv = $('#salvo');
+    if (sv) sv.textContent = 'Salvo em ' + fmtDH(c.fisc.atualizadoEm);
   };
   window.scrollTo(0, 0);
 }
@@ -505,10 +512,12 @@ function telaDados() {
         <label class="btn sec" style="margin:0">Importar backup<input type="file" id="f-bak" accept=".json,application/json" hidden></label></div>
       <p id="m-bak" class="msg"></p></div>
 
-    <div class="card"><h2>4. Alertas</h2>
+    <div class="card"><h2>4. Alertas e indícios</h2>
       <div class="grade">
         <div><label for="c-idade">Ave ativa com mais de (anos)</label><input id="c-idade" type="number" min="1" value="${db.cfg.idadeMax}"></div>
         <div><label for="c-mov">Sem operações há mais de (anos)</label><input id="c-mov" type="number" min="1" value="${db.cfg.anosSemMov}"></div>
+        <div><label for="c-saida">Ave recebida e baixada em até (dias)</label><input id="c-saida" type="number" min="1" value="${db.cfg.diasSaida ?? 30}"></div>
+        <div><label for="c-ano">Movimentação alta a partir de (transferências/ano)</label><input id="c-ano" type="number" min="1" value="${db.cfg.transfAno ?? 10}"></div>
       </div>
       <p><button id="b-cfg" type="button">Salvar alertas</button> <span id="m-cfg" class="muted peq"></span></p></div>
 
@@ -530,7 +539,8 @@ function telaDados() {
     });
   };
   desenharFila();
-  const msg = (id, t, erro) => { const m = $(id); m.textContent = t; m.className = 'msg' + (erro ? ' erro' : ''); };
+  // A tela pode ter mudado enquanto o salvamento terminava.
+  const msg = (id, t, erro) => { const m = $(id); if (m) { m.textContent = t; m.className = 'msg' + (erro ? ' erro' : ''); } };
 
   $('#f-planilha').onchange = async e => {
     try { const t = importarPlanilha(await e.target.files[0].arrayBuffer()); await salvar(); msg('#m-planilha', t); }
@@ -579,8 +589,10 @@ function telaDados() {
   $('#b-cfg').onclick = async () => {
     db.cfg.idadeMax = Math.max(1, +$('#c-idade').value || 20);
     db.cfg.anosSemMov = Math.max(1, +$('#c-mov').value || 10);
+    db.cfg.diasSaida = Math.max(1, +$('#c-saida').value || 30);
+    db.cfg.transfAno = Math.max(1, +$('#c-ano').value || 10);
     await salvar();
-    $('#m-cfg').textContent = 'Salvo.';
+    msg('#m-cfg', 'Salvo.');
   };
   $('#b-apagar').onclick = async () => {
     if (confirm('Apagar todos os dados deste aparelho?')) { await apagarTudo(); location.reload(); }

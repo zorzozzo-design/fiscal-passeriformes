@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import '../parser.js';
-const { parseRelatorio, serializar, resumo, soDigitos, parseData, vinculos, chaveAnilha, obitos, idadesPorEspecie } = globalThis.Parser;
+const { parseRelatorio, serializar, resumo, soDigitos, parseData, vinculos, chaveAnilha, obitos, idadesPorEspecie, indicios } = globalThis.Parser;
 
 const txt = readFileSync(new URL('./relatorio-ficticio.txt', import.meta.url), 'utf8');
 
@@ -35,13 +35,13 @@ test('resumo: aves ativas, ocorrências, última licença e alertas', () => {
   assert.match(s.ocorrencias[0].Operação, /fuga/);
   assert.equal(s.ultimaLicenca, '31/07/2011 (regular)');
   assert.equal(s.ultimaOperacao, '06/05/2022');
-  assert.deepEqual(s.alertas.map(a => a.tipo), ['idade']);
+  assert.deepEqual(s.alertas.map(a => a.tipo), ['idade', 'semLicenca']);
 });
 
 test('sem movimentação gera alerta', () => {
   const r = parseRelatorio(txt);
   const s = resumo(r, { idadeMax: 99, anosSemMov: 2 }, new Date(2026, 9, 18));
-  assert.deepEqual(s.alertas.map(a => a.tipo), ['semMov']);
+  assert.deepEqual(s.alertas.map(a => a.tipo), ['semMov', 'semLicenca']);
 });
 
 test('relatório sem Dados do Criador é rejeitado', () => {
@@ -122,4 +122,65 @@ test('idade média por espécie ignora idade desconhecida', () => {
     { especie: 'Trinca-ferro', obitos: 2, comIdade: 2, media: 7.3, min: 4, max: 10.5 },
     { especie: 'Espécie não identificada', obitos: 1, comIdade: 0, media: null, min: null, max: null },
   ]);
+});
+
+// Criador fictício com plantel zerado e várias movimentações.
+const relIndicios = parseRelatorio([
+  'Dados do Criador', 'Cadastro\tNome Criador\tCPF', '1\tTeste\t333.666.999-57', ' ',
+  'Plantel', 'Situação\tEspécie\tNome Popular\tSexo\tNascimento\tCódigo anilha', ' ',
+  'Transferências Recebidas', 'Data da Doação\tNome do Doador\tOperação do Doador\tAnilha\tData do Recebimento\tOperação do Receptor',
+  '01/03/2015\tFULANO\tsolicitar\tR1\t01/03/2015\tconfirmar transferência de passeriforme',
+  '01/04/2015\tFULANO\tsolicitar\tR2\t01/04/2015\tconfirmar transferência de passeriforme',
+  '01/05/2015\tFULANO\tsolicitar\tR3\t01/05/2015\tconfirmar transferência de passeriforme',
+  '01/06/2015\tFULANO\tsolicitar\tR4\t01/06/2015\trecusar transferência de passeriforme', ' ',
+  'Transferências Solicitadas', 'Funcionário\tObservação\tData\toperação Doador\tAnilha\tNome do Receptor\tData Recebimento\tOperação do Receptor',
+  '20/03/2015\tsolicitar transferência de passeriforme\tR1\tBELTRANO\t21/03/2015\tconfirmar transferência de passeriforme', ' ',
+  'Mensagens de Erro', 'Data do erro\tOperação\tTipo do erro\tMensagem\tCNT',
+  '01/01/2016 10:00:00\tsolicitar transferência de passeriforme\tRestrição\tLicença não emitida. O criador deve emitir a licença!!!\t',
+  '02/01/2016 10:00:00\temitir relação de aves asseguradas\tRestrição\tO criador possui 1 licença pendente!!!\t',
+  '03/01/2016 10:00:00\tconfirmar transferência\tTentativa de fazer mesma inserção\tJá confirmada\t', ' ',
+  'Histórico de Operações', 'Número\tOperação\tData\tAnilha\tReceptor\tFeito por',
+  '1\tdeclarar fuga de passeriforme\t10/04/2015 10:00\tR2\t\tTeste',
+  '2\tdeclarar fuga de passeriforme\t10/12/2015 10:00\tR3\t\tTeste',
+].join('\n'));
+
+test('indícios de fraude', () => {
+  const ind = indicios(relIndicios, { diasSaida: 30, transfAno: 4 });
+  const por = Object.fromEntries(ind.map(i => [i.tipo, i.texto]));
+  assert.deepEqual(Object.keys(por).sort(), ['fugas', 'movAlta', 'saidaRapida', 'semLicenca', 'zerado'].sort());
+  assert.match(por.saidaRapida, /R1 [^;]*transferência em 19 dias/);
+  assert.match(por.saidaRapida, /R2 [^;]*fuga em 9 dias/);
+  assert.doesNotMatch(por.saidaRapida, /R3/);
+  assert.match(por.fugas, /^2 fugas/);
+  assert.match(por.movAlta, /2015: 4/);
+  assert.match(por.semLicenca, /^2 /);
+  assert.match(por.zerado, /sem aves ativas/);
+});
+
+test('ave recebida sem destino', () => {
+  const r = parseRelatorio([
+    'Dados do Criador', 'Cadastro\tNome Criador\tCPF', '1\tTeste\t333.666.999-57', ' ',
+    'Plantel', 'Situação\tEspécie\tNome Popular\tSexo\tNascimento\tCódigo anilha', 'Ativa\tX\tY\tM\t01/01/2020\tR9', ' ',
+    'Transferências Recebidas', 'Data da Doação\tNome do Doador\tOperação do Doador\tAnilha\tData do Recebimento\tOperação do Receptor',
+    '01/03/2015\tFULANO\tsolicitar\tR5\t01/03/2015\tconfirmar transferência de passeriforme',
+    '01/03/2015\tFULANO\tsolicitar\tR9\t01/03/2015\tconfirmar transferência de passeriforme',
+  ].join('\n'));
+  const ind = indicios(r, { diasSaida: 30, transfAno: 10 });
+  assert.deepEqual(ind.map(i => i.tipo), ['semDestino']);
+  assert.match(ind[0].texto, /R5/);
+  assert.doesNotMatch(ind[0].texto, /R9/);
+});
+
+test('relatório sem movimentação não gera indício', () => {
+  assert.deepEqual(indicios(parseRelatorio(txt), { diasSaida: 30, transfAno: 10 }).map(i => i.tipo), ['semLicenca']);
+});
+
+test('óbito reconhecido com acento quebrado', () => {
+  const r = relObito('11144477735', ['Ativa\tX\tY\tM\t01/01/2020\tK1', 'Ativa\tX\tY\tM\t01/01/2020\tK2', 'Ativa\tX\tY\tM\t01/01/2020\tK3'], [
+    '1\tdeclarar óbito da ave\t01/01/2024 10:00\tK1\t\tTeste',
+    '2\tdeclarar ?bito da ave\t01/01/2024 10:00\tK2\t\tTeste',
+    '3\tdeclarar Ã³bito da ave\t01/01/2024 10:00\tK3\t\tTeste',
+  ]);
+  assert.deepEqual(obitos([{ cpf: 'A', rel: r }]).map(o => o.anilha), ['K1', 'K2', 'K3']);
+  assert.equal(resumo(r, { idadeMax: 99, anosSemMov: 99 }).ocorrencias.length, 3);
 });

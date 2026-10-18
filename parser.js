@@ -87,7 +87,7 @@ function obitos(lista) {
   }
   const out = [];
   for (const { cpf, rel } of lista) for (const h of rel.secoes['Histórico de Operações'] || []) {
-    if (!/[óo]bito/i.test(h['Operação'] || '') || !h.Anilha) continue;
+    if (!OBITO.test(h['Operação'] || '') || !h.Anilha) continue;
     const proprio = (rel.secoes.Plantel || []).find(a => chaveAnilha(a['Código anilha']) === chaveAnilha(h.Anilha) && parseData(a.Nascimento));
     const ave = proprio || nasc[chaveAnilha(h.Anilha)];
     out.push({
@@ -109,6 +109,54 @@ function idadesPorEspecie(lista) {
   }).sort((a, b) => b.obitos - a.obitos || a.especie.localeCompare(b.especie));
 }
 
+// Indícios para verificação (não são prova de fraude). cfg: { diasSaida, transfAno }.
+function indicios(rel, cfg) {
+  const s = rel.secoes, out = [];
+  const diasSaida = cfg.diasSaida ?? 30, transfAno = cfg.transfAno ?? 10;
+  const dias = (a, b) => Math.round((parseData(b) - parseData(a)) / 864e5);
+  const confirmada = r => /confirmar/i.test(r['Operação do Receptor'] || '');
+  const entradas = (s['Transferências Recebidas'] || []).filter(confirmada)
+    .map(r => ({ anilha: r.Anilha, data: r['Data do Recebimento'] || r['Data da Doação'] }));
+  const hist = s['Histórico de Operações'] || [];
+  const baixas = hist.filter(h => h.Anilha && OCORRENCIA.test(h['Operação'] || ''))
+    .map(h => ({ anilha: h.Anilha, data: h.Data, tipo: OBITO.test(h['Operação']) ? 'óbito' : h['Operação'].match(OCORRENCIA)[0].toLowerCase() }));
+  const saidas = [...(s['Transferências Solicitadas'] || []).filter(confirmada)
+    .map(r => ({ anilha: r.Anilha, data: r.Data, tipo: 'transferência' })), ...baixas];
+  const noPlantel = new Set((s.Plantel || []).map(a => chaveAnilha(a['Código anilha'])));
+  const ativas = (s.Plantel || []).filter(a => /^ativ/i.test(a['Situação'] || '')).length;
+
+  const rapidas = [];
+  for (const e of entradas) {
+    const sa = saidas.find(x => chaveAnilha(x.anilha) === chaveAnilha(e.anilha) && parseData(x.data) && dias(e.data, x.data) >= 0 && dias(e.data, x.data) <= diasSaida);
+    if (sa) rapidas.push(`${e.anilha} (recebida ${e.data.slice(0, 10)}, ${sa.tipo} em ${dias(e.data, sa.data)} dias)`);
+  }
+  if (rapidas.length) out.push({ tipo: 'saidaRapida', texto: `Ave recebida e baixada/repassada em até ${diasSaida} dias: ${rapidas.join('; ')}` });
+
+  const semDestino = entradas.filter(e => !noPlantel.has(chaveAnilha(e.anilha)) && !saidas.some(x => chaveAnilha(x.anilha) === chaveAnilha(e.anilha)));
+  if (semDestino.length) out.push({ tipo: 'semDestino', texto: `Ave recebida que não está no plantel e sem saída registrada: ${semDestino.map(e => `${e.anilha} (recebida ${e.data.slice(0, 10)})`).join('; ')}` });
+
+  const fugas = baixas.filter(b => b.tipo === 'fuga');
+  if (fugas.length >= 2) out.push({ tipo: 'fugas', texto: `${fugas.length} fugas declaradas: ${fugas.map(f => `${f.anilha} (${f.data.slice(0, 10)})`).join('; ')}` });
+
+  const porAno = {};
+  for (const x of [...entradas, ...saidas.filter(x => x.tipo === 'transferência')]) {
+    const d = parseData(x.data);
+    if (d) porAno[d.getFullYear()] = (porAno[d.getFullYear()] || 0) + 1;
+  }
+  const altos = Object.entries(porAno).filter(([, n]) => n >= transfAno);
+  if (altos.length) out.push({ tipo: 'movAlta', texto: `Movimentação alta (${transfAno}+ transferências confirmadas no ano): ${altos.map(([a, n]) => `${a}: ${n}`).join('; ')}` });
+
+  const bloqueios = (s['Mensagens de Erro'] || []).filter(m => /licen[cç]a (n[aã]o emitida|pendente)/i.test(m.Mensagem || ''));
+  if (bloqueios.length) out.push({ tipo: 'semLicenca', texto: `${bloqueios.length} tentativa(s) de operação bloqueada(s) por licença não emitida/pendente (última: ${bloqueios.map(m => m['Data do erro']).filter(parseData).sort((a, b) => parseData(b) - parseData(a))[0]?.slice(0, 10) || '?'})` });
+
+  const movs = [...entradas, ...saidas];
+  if (!ativas && movs.length) {
+    const ultima = movs.map(m => m.data).filter(parseData).sort((a, b) => parseData(b) - parseData(a))[0]?.slice(0, 10);
+    out.push({ tipo: 'zerado', texto: `Plantel sem aves ativas, mas com ${movs.length} movimentação(ões) registrada(s) (última: ${ultima || '?'})` });
+  }
+  return out;
+}
+
 // Gera de volta o texto no formato do relatório (usado para guardar na planilha e recuperar depois).
 function serializar(secoes) {
   return Object.entries(secoes).map(([titulo, rows]) => {
@@ -118,7 +166,9 @@ function serializar(secoes) {
   }).join('\n \n');
 }
 
-const OCORRENCIA =/fuga|roubo|furto|[óo]bito|morte/i;
+// O SISPASS às vezes troca acentos por "?" (ex.: "n?o"), então "óbito" pode vir como "?bito" ou "Ã³bito".
+const OBITO = /(ó|o|\?|ã³)bito/i;
+const OCORRENCIA = /fuga|roubo|furto|(ó|o|\?|ã³)bito|morte/i;
 
 function resumo(rel, cfg, hoje = new Date()) {
   const s = rel.secoes;
@@ -150,8 +200,9 @@ function resumo(rel, cfg, hoje = new Date()) {
     texto: `Sem operações há mais de ${cfg.anosSemMov} anos (última: ${ultimaOperacao})`,
   });
 
+  alertas.push(...indicios(rel, cfg));
   return { ativas: ativas.length, total: plantel.length, ocorrencias, ultimaLicenca, ultimaOperacao, alertas };
 }
 
-globalThis.Parser = { parseRelatorio, serializar, resumo, soDigitos, parseData, vinculos, chaveAnilha, normNome, obitos, idadesPorEspecie };
+globalThis.Parser = { parseRelatorio, serializar, resumo, soDigitos, parseData, vinculos, chaveAnilha, normNome, obitos, idadesPorEspecie, indicios };
 })();
