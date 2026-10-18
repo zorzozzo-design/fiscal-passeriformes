@@ -12,7 +12,7 @@ function parseData(s) {
 const VAZIO = /^(nenhum registro encontrado\.?|erro)$/i;
 
 function parseRelatorio(texto) {
-  const secoes = {};
+  const secoes = {}, brutas = {};
   let atual = null, cab = null;
   for (const bruta of String(texto).split(/\r?\n/)) {
     const linha = bruta.replace(/ /g, ' ');
@@ -26,10 +26,24 @@ function parseRelatorio(texto) {
     }
     if (!atual) continue;
     const cels = linha.split('\t').map(c => c.trim());
-    if (!cab) { cab = cels; continue; }
-    const row = {};
-    cab.forEach((h, i) => { if (h) row[h] = cels[i] ?? ''; });
-    secoes[atual].push(row);
+    if (!cab) { cab = cels; brutas[atual] = { cab, linhas: [] }; continue; }
+    const linhas = brutas[atual].linhas, ant = linhas[linhas.length - 1];
+    // Texto com quebra de linha dentro de uma célula: a continuação vem numa linha própria.
+    if (ant && ant.length < cab.length && cels.length < cab.length && ant.length + cels.length - 1 <= cab.length) {
+      ant[ant.length - 1] = `${ant[ant.length - 1]} ${cels[0]}`.trim();
+      ant.push(...cels.slice(1));
+      continue;
+    }
+    linhas.push(cels);
+  }
+  for (const [titulo, { cab, linhas }] of Object.entries(brutas)) {
+    secoes[titulo] = linhas.map(cels => {
+      // Linha com menos colunas que o cabeçalho: o SISPASS omite as primeiras colunas vazias.
+      const desloc = Math.max(0, cab.length - cels.length);
+      const row = {};
+      cab.forEach((h, i) => { if (h) row[h] = cels[i - desloc] ?? ''; });
+      return row;
+    });
   }
   const d = secoes['Dados do Criador']?.[0];
   if (!d || !soDigitos(d.CPF)) throw new Error('Arquivo sem a seção "Dados do Criador" com CPF.');
@@ -44,7 +58,16 @@ function parseRelatorio(texto) {
   };
 }
 
-const OCORRENCIA = /fuga|roubo|furto|[óo]bito|morte/i;
+// Gera de volta o texto no formato do relatório (usado para guardar na planilha e recuperar depois).
+function serializar(secoes) {
+  return Object.entries(secoes).map(([titulo, rows]) => {
+    if (!rows.length) return `${titulo}\nNenhum registro encontrado.`;
+    const cab = Object.keys(rows[0]);
+    return [titulo, cab.join('\t'), ...rows.map(r => cab.map(h => String(r[h] ?? '').replace(/[\t\r\n]+/g, ' ')).join('\t'))].join('\n');
+  }).join('\n \n');
+}
+
+const OCORRENCIA =/fuga|roubo|furto|[óo]bito|morte/i;
 
 function resumo(rel, cfg, hoje = new Date()) {
   const s = rel.secoes;
@@ -57,10 +80,11 @@ function resumo(rel, cfg, hoje = new Date()) {
     if (OCORRENCIA.test(titulo)) ocorrencias.push(...rows.map(r => ({ ...r, _secao: titulo })));
   }
 
-  const maisRecente = (rows, col) => rows.map(r => r[col]).filter(parseData)
-    .sort((a, b) => parseData(b) - parseData(a))[0]?.slice(0, 10) || '';
-  const ultimaLicenca = maisRecente(s['Licenças Verificadas no Sistema'] || [], 'Validade');
-  const ultimaOperacao = maisRecente(hist, 'Data');
+  const maisRecente = (rows, col) => rows.filter(r => parseData(r[col]))
+    .sort((a, b) => parseData(b[col]) - parseData(a[col]))[0];
+  const lic = maisRecente(s['Licenças Verificadas no Sistema'] || [], 'Validade');
+  const ultimaLicenca = lic ? `${lic.Validade.slice(0, 10)}${lic['Situação'] ? ` (${lic['Situação']})` : ''}` : '';
+  const ultimaOperacao = maisRecente(hist, 'Data')?.Data.slice(0, 10) || '';
 
   const anos = d => (hoje - d) / (365.25 * 864e5);
   const alertas = [];
@@ -78,5 +102,5 @@ function resumo(rel, cfg, hoje = new Date()) {
   return { ativas: ativas.length, total: plantel.length, ocorrencias, ultimaLicenca, ultimaOperacao, alertas };
 }
 
-globalThis.Parser = { parseRelatorio, resumo, soDigitos, parseData };
+globalThis.Parser = { parseRelatorio, serializar, resumo, soDigitos, parseData };
 })();

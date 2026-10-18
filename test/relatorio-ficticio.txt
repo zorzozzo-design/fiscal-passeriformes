@@ -29,3 +29,13 @@ Número	Operação	Data	Anilha	Receptor	Feito por
 900	comunicar fuga	02/02/2020 10:00	EEE-FFF-3-003/18		Fulano de Teste
 901	nascimento	06/05/2022 09:00	CCC-DDD-2-002/22		Fulano de Teste
 902	importar plantel de IN5	09/12/2003 11:44	AAA-BBB-1-001/95		Fulano de Teste
+ 
+Transferências Solicitadas
+Funcionário	Observação	Data	operação Doador	Anilha	Nome do Receptor	Data Recebimento	Operação do Receptor
+10/04/2017	solicitar transferência de passeriforme	GGG-HHH-1-004/16	BELTRANO DE TESTE	11/04/2017	confirmar transferência de passeriforme
+ 
+Mensagens de Erro
+Data do erro	Operação	Tipo do erro	Mensagem	CNT
+15/10/2014 20:58:03	solicitar licença de criador amadorista	Restrição	Primeira parte da mensagem.
+Segunda parte da mensagem.	
+14/08/2016 19:39:08	emitir relação	Licenca	Licença não emitida.	

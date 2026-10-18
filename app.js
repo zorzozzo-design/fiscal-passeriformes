@@ -1,4 +1,4 @@
-const { parseRelatorio, resumo, soDigitos } = window.Parser;
+const { parseRelatorio, serializar, resumo, soDigitos } = window.Parser;
 
 // ---------- utilitários ----------
 const $ = s => document.querySelector(s);
@@ -8,7 +8,13 @@ const norm = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLow
 const fmtCpf = c => c.length === 11 ? `${c.slice(0, 3)}.${c.slice(3, 6)}.${c.slice(6, 9)}-${c.slice(9)}` : c;
 const agora = () => new Date().toISOString();
 const fmtDH = iso => iso ? new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '';
-const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+// Converte em blocos: espalhar o array inteiro em fromCharCode estoura a pilha com bases grandes.
+const b64 = buf => {
+  const u = new Uint8Array(buf);
+  let s = '';
+  for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
+  return btoa(s);
+};
 const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
 
 const STATUS = { '': 'Não visitado', regular: 'Visitado: regular', irregular: 'Visitado: irregular', naoloc: 'Não localizado' };
@@ -240,6 +246,7 @@ const chaveCol = s => norm(s).replace(/[^a-z]/g, '');
 
 function importarPlanilha(buf) {
   const wb = XLSX.read(buf, { type: 'array' });
+  if (wb.Sheets.Criadores && wb.Sheets._relatorios) return restaurarPlanilha(wb);
   const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '', raw: false });
   let novos = 0, atualizados = 0;
   for (const linha of rows) {
@@ -261,6 +268,63 @@ function importarRelatorio(texto) {
     endereco: d.endereco, cidade: d.municipio.replace(/\/RS$/i, ''), rel: null, fisc: null };
   db.criadores[rel.cpf].rel = { importadoEm: agora(), criador: d, secoes: rel.secoes };
   return db.criadores[rel.cpf].nome;
+}
+
+// ---------- planilha de recuperação ----------
+const PARTE = 30000; // limite de caracteres por célula do Excel é 32.767
+const comCriador = (c, rows) => (rows || []).map(r => {
+  const { _secao, ...resto } = r;
+  return { CPF: fmtCpf(c.cpf), Criador: c.nome, ...(_secao ? { 'Seção': _secao } : {}), ...resto };
+});
+
+function exportarPlanilha() {
+  const todos = Object.values(db.criadores).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  const criadores = todos.map(c => {
+    const r = resumoDe(c);
+    return {
+      CPF: fmtCpf(c.cpf), Registro: String(c.registro), Nome: c.nome, Cidade: c.cidade, Bairro: c.bairro, 'Endereço': c.endereco,
+      'Situação fiscalização': STATUS[c.fisc?.status || ''], 'Observações': c.fisc?.obs || '', 'Atualizado em': c.fisc?.atualizadoEm || '',
+      'Relatório importado em': c.rel?.importadoEm || '', 'Aves ativas': r ? r.ativas : '', 'Total de aves': r ? r.total : '',
+      'Alertas': r ? r.alertas.map(a => a.texto).join(' | ') : '', 'Fugas/roubos/óbitos': r ? r.ocorrencias.length : '',
+      'Última licença': r?.ultimaLicenca || '', 'Última operação': r?.ultimaOperacao || '',
+    };
+  });
+  const comRel = todos.filter(c => c.rel);
+  const relatorios = comRel.map(c => {
+    const texto = serializar(c.rel.secoes), linha = { CPF: fmtCpf(c.cpf), 'Importado em': c.rel.importadoEm };
+    for (let i = 0; i * PARTE < texto.length; i++) linha[`Parte ${i + 1}`] = texto.slice(i * PARTE, (i + 1) * PARTE);
+    return linha;
+  });
+  const wb = XLSX.utils.book_new();
+  const aba = (nome, rows) => XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{}]), nome);
+  aba('Criadores', criadores);
+  aba('Plantel', comRel.flatMap(c => comCriador(c, c.rel.secoes.Plantel)));
+  aba('Fugas-Roubos-Óbitos', comRel.flatMap(c => comCriador(c, resumoDe(c).ocorrencias)));
+  aba('Histórico', comRel.flatMap(c => comCriador(c, c.rel.secoes['Histórico de Operações'])));
+  aba('_relatorios', relatorios);
+  XLSX.writeFile(wb, `fiscal-passeriformes-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  return `Planilha exportada: ${todos.length} criadores, ${comRel.length} com relatório.`;
+}
+
+function restaurarPlanilha(wb) {
+  const ler = nome => XLSX.utils.sheet_to_json(wb.Sheets[nome], { defval: '', raw: false });
+  const statusDe = Object.fromEntries(Object.entries(STATUS).map(([k, v]) => [v, k]));
+  const outro = { criadores: {} };
+  for (const l of ler('Criadores')) {
+    const cpf = soDigitos(l.CPF);
+    if (cpf.length !== 11) continue;
+    const status = statusDe[l['Situação fiscalização']] || '';
+    outro.criadores[cpf] = { cpf, registro: l.Registro, nome: l.Nome, cidade: l.Cidade, bairro: l.Bairro, endereco: l['Endereço'], rel: null,
+      fisc: status || l['Observações'] ? { status, obs: l['Observações'], atualizadoEm: l['Atualizado em'] } : null };
+  }
+  for (const l of ler('_relatorios')) {
+    const texto = Object.keys(l).filter(k => k.startsWith('Parte ')).sort((a, b) => parseInt(a.slice(6)) - parseInt(b.slice(6))).map(k => l[k]).join('');
+    const rel = parseRelatorio(texto);
+    outro.criadores[rel.cpf] ||= { cpf: rel.cpf, registro: rel.criador.cadastro, nome: rel.criador.nome, bairro: rel.criador.bairro,
+      endereco: rel.criador.endereco, cidade: rel.criador.municipio.replace(/\/RS$/i, ''), rel: null, fisc: null };
+    outro.criadores[rel.cpf].rel = { importadoEm: l['Importado em'], criador: rel.criador, secoes: rel.secoes };
+  }
+  return `Planilha de recuperação importada: ${mesclar(outro)} alteração(ões).`;
 }
 
 async function lerTexto(arquivo) {
@@ -287,7 +351,7 @@ function telaDados() {
       <p class="muted">${lista.length} criadores · ${comRel} com relatório · ${lista.length - comRel} sem relatório</p></div>
 
     <div class="card"><h2>1. Planilha de criadores (.xlsx ou .csv)</h2>
-      <p class="muted peq">Colunas esperadas: REGISTRO, CPF, CRIADOR, BAIRRO, ENDEREÇO, Cidade. Não apaga relatórios nem anotações.</p>
+      <p class="muted peq">Colunas esperadas: REGISTRO, CPF, CRIADOR, BAIRRO, ENDEREÇO, Cidade. Não apaga relatórios nem anotações. Também aceita a planilha exportada pelo app (item 3) para recuperar os dados.</p>
       <input type="file" id="f-planilha" accept=".xlsx,.xls,.csv">
       <p id="m-planilha" class="msg"></p></div>
 
@@ -299,8 +363,11 @@ function telaDados() {
       <p><button id="b-colar" type="button">Importar texto colado</button></p>
       <p id="m-rel" class="msg"></p></div>
 
-    <div class="card"><h2>3. Backup e sincronização</h2>
-      <p class="muted peq">O backup sai criptografado com a sua senha atual. No outro aparelho, importe o arquivo: os dados são mesclados (vale o relatório e a anotação mais recentes de cada criador).</p>
+    <div class="card"><h2>3. Backup, planilha e sincronização</h2>
+      <p class="muted peq"><b>Planilha (.xlsx):</b> criadores, plantel, fugas/roubos/óbitos e histórico, legível no Excel. Guarda também os relatórios completos na aba _relatorios, para recuperar tudo importando a planilha no item 1. Atenção: a planilha não é criptografada.</p>
+      <div class="linha"><button id="b-xlsx" type="button">Exportar planilha</button></div>
+      <p id="m-xlsx" class="msg"></p>
+      <p class="muted peq"><b>Backup criptografado (.json):</b> o backup sai criptografado com a sua senha atual. No outro aparelho, importe o arquivo: os dados são mesclados (vale o relatório e a anotação mais recentes de cada criador).</p>
       <div class="linha"><button id="b-exp" type="button">Exportar backup</button>
         <label class="btn sec" style="margin:0">Importar backup<input type="file" id="f-bak" accept=".json,application/json" hidden></label></div>
       <p id="m-bak" class="msg"></p></div>
@@ -335,6 +402,9 @@ function telaDados() {
   $('#b-colar').onclick = async () => {
     try { const nome = importarRelatorio($('#t-rel').value); await salvar(); $('#t-rel').value = ''; msg('#m-rel', `Relatório de ${nome} importado.`); }
     catch (err) { msg('#m-rel', err.message, true); }
+  };
+  $('#b-xlsx').onclick = () => {
+    try { msg('#m-xlsx', exportarPlanilha()); } catch (err) { msg('#m-xlsx', 'Erro ao exportar: ' + err.message, true); }
   };
   $('#b-exp').onclick = async () => {
     const blob = new Blob([JSON.stringify(await cifrar(chave, salt, db))], { type: 'application/json' });
