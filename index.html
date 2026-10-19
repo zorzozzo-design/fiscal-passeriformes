@@ -23,6 +23,13 @@
   </nav>
 </header>
 <main id="app"><p class="muted">Carregando…</p></main>
+<script>
+  // Se os scripts não carregarem (ex.: arquivo aberto pelo gerenciador de arquivos no Android), explica em vez de travar.
+  setTimeout(function () {
+    var m = document.getElementById('app');
+    if (m && /Carregando/.test(m.textContent)) m.innerHTML = '<p><b>O app não carregou.</b></p><p>No celular, abrir o index.html pelo gerenciador de arquivos não funciona: o navegador não acessa os outros arquivos da pasta. Use o endereço https onde o app está hospedado.</p>';
+  }, 4000);
+</script>
 <script src="vendor/xlsx.mini.min.js" defer></script>
 <script src="parser.js" defer></script>
 <script src="normas.js" defer></script>
