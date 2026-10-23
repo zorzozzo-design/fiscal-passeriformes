@@ -356,6 +356,7 @@ function textoRelatorio({ criador: c, vistoria: v, resultado, ctf, licenca, conf
     L.push('');
   }
   if (v.obs) L.push('OBSERVAÇÕES', v.obs, '');
+  if (v.notificacao?.ciencia) L.push('NOTIFICAÇÃO', textoNotificacao(v.notificacao), '');
   if (providencias.length) { L.push('PROVIDÊNCIAS'); providencias.forEach(p => L.push(`- ${p}`)); L.push(''); }
   if (assinatura) L.push(assinatura);
   return L.join('\n').trim();
@@ -431,10 +432,32 @@ function textoAbordagem(ab, { assinatura = '', criador = null } = {}) {
   const docs = [['ai', 'Auto de Infração'], ['termoApreensao', 'Termo de Apreensão'], ['termoDeposito', 'Termo de Depósito'], ['bo', 'BO'], ['tco', 'TCO']].filter(([k]) => dc[k]);
   if (docs.length) { L.push('', 'DOCUMENTOS'); docs.forEach(([k, n]) => L.push(`- ${n} nº ${dc[k]}`)); }
   if (ab.relato) L.push('', 'RELATO', ab.relato);
+  if (ab.prazo?.data) L.push('', `Prazo / retorno: ${dataHora(ab.prazo.data)}${ab.prazo.motivo ? ` (${ab.prazo.motivo})` : ''}`);
   if (assinatura) L.push('', assinatura);
   return L.join('\n').trim();
 }
 
+// ---------- Prazos (notificação do art. 64 e retornos de abordagem) ----------
+const iso = d => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+const utc = s => new Date(s.slice(0, 10) + 'T00:00:00Z');
+const somarDias = (s, n) => { const d = utc(s); d.setUTCDate(d.getUTCDate() + n); return iso(d); };
+function situacaoPrazo(venc, hoje) {
+  const dias = Math.round((utc(venc) - utc(hoje)) / 864e5), dt = dataIso(venc);
+  const texto = dias === 0 ? `vence hoje (${dt})` : dias > 0 ? `vence em ${dt} (falta${dias > 1 ? 'm' : ''} ${dias} dia${dias > 1 ? 's' : ''})` : `vencido há ${-dias} dia${dias < -1 ? 's' : ''} (${dt})`;
+  return { dias, vencido: dias < 0, texto };
+}
+// Evento de dia inteiro com alarme às 9h da véspera, para importar na agenda do celular.
+function ics({ uid, data, titulo, descricao = '' }) {
+  const e = t => String(t).replace(/\\/g, '\\\\').replace(/[,;]/g, m => '\\' + m).replace(/\r?\n/g, '\\n');
+  const d = data.replace(/-/g, ''), fim = somarDias(data, 1).replace(/-/g, '');
+  const agora = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
+  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//fiscal-passeriformes//PT-BR', 'BEGIN:VEVENT', `UID:${uid}@fiscal-passeriformes`, `DTSTAMP:${agora}`,
+    `DTSTART;VALUE=DATE:${d}`, `DTEND;VALUE=DATE:${fim}`, `SUMMARY:${e(titulo)}`, `DESCRIPTION:${e(descricao)}`,
+    'BEGIN:VALARM', 'ACTION:DISPLAY', 'TRIGGER:-PT15H', `DESCRIPTION:${e(titulo)}`, 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR', ''].join('\r\n');
+}
+const textoNotificacao = n => `Notificado em ${dataIso(n.ciencia)} para regularizar em ${n.prazo} dias, até ${dataIso(somarDias(n.ciencia, +n.prazo))}${n.objeto ? ': ' + n.objeto : ''} (IN SEMA 04/2022, art. 64).`;
+
 globalThis.Normas = { especie, ameaca, periodo, situacaoCTF, situacaoLicenca, ameacadasDoPlantel, verificar, textoSuspensao, fmt, canon, CONF, resumoConferencia, textoRelatorio,
-  identificarEspecie, opcoesEspecies, resumoAbordagem, textoAbordagem, ESTADO_AVE, DESTINO_AVE, DOCUMENTACAO, MULTA, reais };
+  identificarEspecie, opcoesEspecies, resumoAbordagem, textoAbordagem, ESTADO_AVE, DESTINO_AVE, DOCUMENTACAO, MULTA, reais,
+  somarDias, situacaoPrazo, ics, textoNotificacao };
 })();

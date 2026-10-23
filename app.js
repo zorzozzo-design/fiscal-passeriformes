@@ -75,6 +75,7 @@ async function salvar() {
   await tx('criadores', 'readwrite', s => regs.forEach(([cpf, v]) => s.put(v, cpf)));
   if (regsAb.length) await tx('abordagens', 'readwrite', s => regsAb.forEach(([id, v]) => v ? s.put(v, id) : s.delete(id)));
   await tx('kv', 'readwrite', s => s.put(meta, 'meta'));
+  marcarNav();
 }
 async function lerLoja(loja) {
   const d = await idb();
@@ -401,6 +402,12 @@ function estado(c) {
       texto: Normas.textoSuspensao(dt, v.graves.map(g => GRAVES.find(x => x[0] === g)[1]), v.graves.map(g => `art. 62, §2º, ${g}`))
         + obsSemGraves(v),
       providencia: `No SISPASS: alterar a licença${lic?.numero ? ' nº ' + lic.numero : ' do período'} de regular para suspensa e colar a observação acima.` });
+    if (v.notificacao?.ciencia) {
+      const venc = Normas.somarDias(v.notificacao.ciencia, +v.notificacao.prazo), sp = Normas.situacaoPrazo(venc, hojeIso());
+      itens.push({ id: `prazo:${v.id}`, grupo: 'prazo', tipo: 'conferir', destino: 'Campo', data: Normas.fmt(dt), desde: v.data, vencimento: venc, vencido: sp.vencido,
+        titulo: `Prazo da notificação: ${sp.texto}`, base: 'IN SEMA 04/2022, art. 64', texto: Normas.textoNotificacao(v.notificacao),
+        providencia: 'Retornar e verificar se regularizou. Se não regularizou, caracteriza a infração (art. 64).' });
+    }
     if (v.maneja === 'outro') itens.push({ id: `fachada:${v.id}`, grupo: 'sispass', tipo: 'indicio', destino: 'Campo', data: Normas.fmt(dt),
       titulo: 'Titular não é quem maneja as aves', base: 'IN SEMA 04/2022, arts. 11 e 62, §2º, I e VI',
       texto: `Na vistoria de ${Normas.fmt(dt)}, as aves eram manejadas por ${v.manejaNome || 'outra pessoa'}.`,
@@ -412,6 +419,7 @@ function estado(c) {
     i.irregularEm = vist.find(v => v.irregular?.includes(i.id) && cobre(v))?.data;
     i.verificadoEm = i.grupo === 'campo' && !i.irregularEm ? vist.find(v => v.ok?.includes(i.id) && cobre(v))?.data : undefined;
     i.feito = c.acoes?.[i.id];
+    if (i.grupo === 'prazo') i.verificadoEm = vist.filter(v => v.data > i.desde).at(-1)?.data; // vistoria de retorno
     i.aberto = !i.verificadoEm && !i.feito;
   }
   const e = { v: versao, itens, abertos: itens.filter(i => i.aberto), r: c.rel ? resumo(c.rel, db.cfg) : null,
@@ -442,14 +450,17 @@ function htmlItem(c, i, comCriador = false) {
     : i.verificadoEm ? `Verificado em vistoria de ${Normas.fmt(new Date(i.verificadoEm + 'T12:00'))}`
     : i.irregularEm ? `Constatado irregular em ${Normas.fmt(new Date(i.irregularEm + 'T12:00'))}` : '';
   return `<div class="item ${i.tipo}" data-id="${esc(i.id)}" data-cpf="${c.cpf}">
-    <div class="linha"><span class="tag dest">${esc(i.destino)}</span>${chip(i.tipo === 'nc' ? 'não conformidade' : i.tipo === 'indicio' ? 'indício' : 'conferir', i.tipo === 'nc' ? 'alerta' : 'aviso')}
+    <div class="linha"><span class="tag dest">${esc(i.destino)}</span>${i.grupo === 'prazo' ? chip(i.vencido ? 'prazo vencido' : 'prazo', i.vencido && i.aberto ? 'alerta' : 'aviso')
+      : chip(i.tipo === 'nc' ? 'não conformidade' : i.tipo === 'indicio' ? 'indício' : 'conferir', i.tipo === 'nc' ? 'alerta' : 'aviso')}
       ${comCriador ? `<a href="#/c/${c.cpf}"><b>${esc(c.nome)}</b></a> <span class="muted peq">${esc(c.cidade)}</span>` : ''}</div>
     <b>${esc(i.titulo)}</b><div class="peq">${esc(i.texto)}</div>
     <div class="peq muted">${esc(i.base)}${i.data ? ' · fato em ' + esc(i.data) : ''}</div>
     <div class="peq"><b>Providência:</b> ${esc(i.providencia)}</div>
     ${i.destino === 'SISPASS' && i.id.startsWith('suspender:') ? `<button class="sec b-copiar-txt" type="button" data-txt="${esc(i.texto)}">Copiar observação</button>` : ''}
     ${estadoTxt ? `<div class="peq ok-txt">${estadoTxt}</div>` : ''}
-    ${i.aberto ? `<button class="sec b-feito" type="button">${i.id.startsWith('suspender:') ? 'Licença suspensa no SISPASS' : 'Marcar providência feita'}</button>`
+    ${i.aberto && i.vencimento ? `<button class="sec b-agenda" type="button" data-uid="${esc(i.id + c.cpf)}" data-data="${i.vencimento}"
+      data-titulo="${esc('Prazo notificação: ' + c.nome)}" data-desc="${esc(i.texto + '\n' + [c.endereco, c.bairro, c.cidade].filter(Boolean).join(', '))}">Adicionar à agenda</button>` : ''}
+    ${i.aberto ? `<button class="sec b-feito" type="button">${i.id.startsWith('suspender:') ? 'Licença suspensa no SISPASS' : i.grupo === 'prazo' ? 'Regularizou' : 'Marcar providência feita'}</button>`
       : i.feito ? '<button class="sec b-desfazer" type="button">Desfazer</button>' : ''}
   </div>`;
 }
@@ -495,6 +506,7 @@ function ligarItens(depois) {
   for (const b of document.querySelectorAll('.b-copiar-txt')) b.onclick = async () => {
     try { await navigator.clipboard.writeText(b.dataset.txt); b.textContent = 'Copiado'; } catch { b.textContent = 'Selecione e copie o texto acima'; }
   };
+  ligarAgenda();
   for (const b of document.querySelectorAll('.b-feito, .b-desfazer')) b.onclick = async () => {
     const el = b.closest('.item'), c = db.criadores[el.dataset.cpf], id = el.dataset.id;
     c.acoes ||= {};
@@ -624,6 +636,13 @@ function formVistoria(c, e) {
     <h2 style="margin-top:12px">Infração grave constatada (art. 62, §2º)</h2>
     <p class="muted peq">Se marcar, o app gera o texto de suspensão da licença para o SISPASS.</p>
     ${GRAVES.map(([k, t]) => `<label class="chk"><input type="checkbox" class="v-grave" value="${k}"> ${k}: ${esc(t)}</label>`).join('')}
+    <h2 style="margin-top:12px">Notificação (art. 64)</h2>
+    <label class="chk"><input type="checkbox" id="v-notif"> Criador notificado a regularizar no prazo</label>
+    <div id="v-notif-campos" hidden>
+      <div class="grade"><div><label for="v-notif-ciencia">Data da ciência</label><input id="v-notif-ciencia" type="date" value="${hojeIso()}"></div>
+        <div><label for="v-notif-prazo">Prazo (dias corridos)</label><input id="v-notif-prazo" type="number" min="1" value="15"></div></div>
+      <label for="v-notif-objeto">O que deve regularizar</label><input id="v-notif-objeto" placeholder="Ex.: identificar as gaiolas e apresentar a relação do plantel">
+    </div>
     <label for="v-obs">Observações</label>
     <div class="frases">${FRASES.map(f => `<button class="sec chip-txt" type="button">${esc(f)}</button>`).join('')}</div>
     <textarea id="v-obs" rows="5" placeholder="Clique nas frases acima e complete digitando"></textarea>
@@ -795,6 +814,7 @@ function telaFicha(cpf) {
   ligarItens(recarregar);
   const contarConf = () => { const s = [...document.querySelectorAll('.v-ave')]; if ($('#v-conf-cont')) $('#v-conf-cont').textContent = `${s.filter(x => x.value).length} de ${s.length} conferidas`; };
   for (const s of document.querySelectorAll('.v-ave')) s.onchange = contarConf;
+  $('#v-notif').onchange = e => { $('#v-notif-campos').hidden = !e.target.checked; };
   if ($('#v-todas')) $('#v-todas').onclick = () => { for (const s of document.querySelectorAll('.v-ave')) if (!s.value) s.value = 'ok'; contarConf(); };
   contarConf();
   for (const b of document.querySelectorAll('.b-rel')) b.onclick = () => {
@@ -820,6 +840,7 @@ function telaFicha(cpf) {
     v.aves = {};
     for (const s of document.querySelectorAll('.v-ave')) if (s.value) v.aves[s.dataset.k] = s.value;
     v.extras = lerExtras($('#v-extras').value);
+    if ($('#v-notif').checked) v.notificacao = { ciencia: $('#v-notif-ciencia').value || v.data, prazo: Math.max(1, parseInt($('#v-notif-prazo').value) || 15), objeto: $('#v-notif-objeto').value.trim() };
     const conf = Normas.resumoConferencia(avesAtivas(c), v);
     if (v.resultado === 'regular' && (v.irregular.length || v.graves.length || conf.irregular)) v.resultado = 'irregular';
     if (v.endereco && v.endereco !== c.endereco) c.endereco = v.endereco;
@@ -839,19 +860,57 @@ function telaFicha(cpf) {
 }
 
 
+// ---------- prazos (notificações em vistoria e retornos de abordagem) ----------
+function prazosAbertos() {
+  const hoje = hojeIso(), out = [];
+  for (const c of Object.values(db.criadores)) if (c.vistorias?.some(v => v.notificacao)) for (const i of estado(c).abertos) if (i.grupo === 'prazo') out.push({ venc: i.vencimento, c, i });
+  for (const ab of Object.values(db.abordagens)) if (ab.prazo?.data && ab.prazo.situacao !== 'concluido') out.push({ venc: ab.prazo.data, ab });
+  for (const p of out) p.sit = Normas.situacaoPrazo(p.venc, hoje);
+  return out.sort((a, b) => a.venc.localeCompare(b.venc));
+}
+function cardPrazos() {
+  const l = prazosAbertos();
+  if (!l.length) return '';
+  const vencidos = l.filter(p => p.sit.vencido).length;
+  return `<div class="card ${vencidos ? 'prazo-vencido' : ''}"><h2>Prazos em aberto (${l.length}${vencidos ? `, ${vencidos} vencido(s)` : ''})</h2>
+    ${l.map(p => p.c ? htmlItem(p.c, p.i, true) : `<div class="item">
+      <div class="linha">${chip('Abordagem')}${chip(p.sit.vencido ? 'prazo vencido' : 'prazo', p.sit.vencido ? 'alerta' : 'aviso')}
+        <a href="#/ab/${p.ab.id}"><b>${esc(p.ab.pessoa?.nome || 'Abordado não identificado')}</b></a> <span class="muted peq">${esc(p.ab.local?.cidade || '')}</span></div>
+      <b>Retorno: ${esc(p.sit.texto)}</b><div class="peq">${esc(p.ab.prazo.motivo || '')}</div>
+      <div class="linha">${botaoAgendaAb(p.ab)}<button class="sec b-ab-concluir" type="button" data-id="${p.ab.id}">Concluído</button></div></div>`).join('')}</div>`;
+}
+const botaoAgendaAb = ab => `<button class="sec b-agenda" type="button" data-uid="ab-${esc(ab.id)}" data-data="${esc(ab.prazo.data)}"
+  data-titulo="${esc('Retorno: ' + (ab.pessoa?.nome || ab.local?.endereco || 'abordagem'))}" data-desc="${esc([ab.prazo.motivo, [ab.local?.endereco, ab.local?.bairro, ab.local?.cidade].filter(Boolean).join(', ')].filter(Boolean).join('\n'))}">Adicionar à agenda</button>`;
+// Baixa um .ics; no celular, abrir o arquivo oferece incluir o evento (com alarme na véspera) na agenda.
+function ligarAgenda() {
+  for (const b of document.querySelectorAll('.b-agenda')) b.onclick = () => {
+    const t = Normas.ics({ uid: b.dataset.uid, data: b.dataset.data, titulo: b.dataset.titulo, descricao: b.dataset.desc });
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([t], { type: 'text/calendar' })), download: `prazo-${b.dataset.data}.ics` });
+    a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+}
+// Menu: quantidade de prazos vencidos ao lado de "Pendências".
+function marcarNav() {
+  const a = $('#nav a[href="#/pendencias"]');
+  if (!a || !db) return;
+  const n = prazosAbertos().filter(p => p.sit.vencido).length;
+  a.innerHTML = 'Pendências' + (n ? ` <span class="tag alerta" title="prazos vencidos">${n}</span>` : '');
+}
+
 // ---------- pendências (fila de trabalho) ----------
 const filtroPend = { destino: 'acoes', cidade: '', tipo: '' };
 function telaPendencias() {
   const todos = Object.values(db.criadores).filter(c => c.rel || c.vistorias?.length);
   const cidades = [...new Set(todos.map(c => c.cidade).filter(Boolean))].sort();
   const lista = todos.filter(c => !filtroPend.cidade || c.cidade === filtroPend.cidade)
-    .flatMap(c => estado(c).abertos.map(i => ({ c, i })))
+    .flatMap(c => estado(c).abertos.filter(i => i.grupo !== 'prazo').map(i => ({ c, i })))
     .filter(({ i }) => filtroPend.destino === 'todas' || (filtroPend.destino === 'acoes' ? i.destino !== 'Campo' : i.destino === filtroPend.destino))
     .filter(({ i }) => !filtroPend.tipo || i.tipo === filtroPend.tipo)
     .sort((a, b) => (Parser.parseData(b.i.data) || 0) - (Parser.parseData(a.i.data) || 0));
   const porDestino = d => todos.reduce((n, c) => n + estado(c).abertos.filter(i => i.destino === d).length, 0);
   app.innerHTML = `<div class="card"><h1>Pendências</h1>
       <div class="sits">${DESTINOS.map(d => `<div class="sit ${porDestino(d) ? 'ruim' : 'bom'}"><span>${esc(DESTINO_TXT[d])}</span>${porDestino(d)}</div>`).join('')}</div></div>
+    ${cardPrazos()}
     <div class="filtros">
       <select id="p-dest">${[['acoes', 'SISPASS, SEMA e notificações'], ['todas', 'Todas'], ...DESTINOS.map(d => [d, DESTINO_TXT[d]])]
         .map(([v, t]) => `<option value="${v}" ${v === filtroPend.destino ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>
@@ -866,6 +925,10 @@ function telaPendencias() {
   $('#p-cid').onchange = ev => { filtroPend.cidade = ev.target.value; telaPendencias(); };
   $('#p-tipo').onchange = ev => { filtroPend.tipo = ev.target.value; telaPendencias(); };
   ligarItens(() => { const y = window.scrollY; telaPendencias(); window.scrollTo(0, y); });
+  for (const b of document.querySelectorAll('.b-ab-concluir')) b.onclick = async () => {
+    const ab = db.abordagens[b.dataset.id]; ab.prazo.situacao = 'concluido'; ab.atualizadoEm = new Date().toISOString();
+    sujosAb.add(ab.id); await salvar(); telaPendencias();
+  };
 }
 
 // ---------- vínculos de cadastro (e-mail, telefone, IP e endereço compartilhados) ----------
@@ -894,7 +957,7 @@ const ROTULO_ITEM = { licenca: 'Licença do período irregular', inadimplentes: 
   longevidade: 'Ave muito velha', art71: 'Ameaçada CR (ART)', genotipagem: 'Genotipagem obrigatória', reiteradas: 'Fugas/roubos reiterados',
   baixa30: 'Baixas > 30% do plantel', nasc35: 'Mais de 35 nascimentos', bo: 'B.O. a conferir', anilhaObito: 'Anilha de óbito a conferir',
   mesmoEndereco: 'Mais de um criador no endereço', sol: 'Autorização SOL a conferir', vincEmail: 'E-mail compartilhado', vincFone: 'Telefone compartilhado',
-  vincIp: 'IP compartilhado', suspender: 'Suspender licença no SISPASS', fachada: 'Titular não maneja as aves',
+  vincIp: 'IP compartilhado', prazo: 'Prazo de notificação', suspender: 'Suspender licença no SISPASS', fachada: 'Titular não maneja as aves',
   'ind:saidaRapida': 'Indício: recebida e logo baixada', 'ind:semDestino': 'Indício: recebida sem destino', 'ind:movAlta': 'Indício: movimentação alta',
   'ind:semLicenca': 'Indício: operações bloqueadas', 'ind:semMov': 'Indício: sem movimentação' };
 const chaveItem = i => i.id.startsWith('ind:') ? i.id : i.id.split(':')[0];
@@ -977,6 +1040,7 @@ function telaPainel() {
       ${card('CTF cancelado', conta('ctf'), '#/?f=ctf', conta('ctf') ? 'ruim' : '')}
       ${card(`Licença ${per.rotulo} irregular`, conta('licenca'), '#/?f=licenca', conta('licenca') ? 'ruim' : '')}
       ${card('Com pendência em aberto', conta('abertos'), '#/pendencias', conta('abertos') ? 'ruim' : '')}
+      ${(() => { const p = prazosAbertos(), v = p.filter(x => x.sit.vencido).length; return card('Prazos vencidos', v, '#/pendencias', v ? 'ruim' : '', `${p.length} prazo(s) em aberto`); })()}
     </div>
 
     ${kpisAbordagens(card)}
@@ -1288,6 +1352,7 @@ function telaDados() {
 // ---------- roteamento e bloqueio ----------
 function rotear() {
   if (!db) return telaSenha();
+  marcarNav();
   const h = location.hash;
   if (h.startsWith('#/c/')) return telaFicha(h.slice(4));
   if (h === '#/dados') return telaDados();

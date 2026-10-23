@@ -204,3 +204,27 @@ test('relatório da abordagem em texto', () => {
   const t2 = N.textoAbordagem({ ...abord, aves: [{ especie: 'Tico-tico', qtd: 2 }] }, { criador: { nome: 'Beltrano', registro: '77' } });
   assert.ok(t2.includes('Criador cadastrado no SISPASS (registro 77)') && !t2.includes('§4º, I'));
 });
+
+// ---------- prazos de notificação (art. 64) ----------
+test('soma dias e situação do prazo', () => {
+  assert.equal(N.somarDias('2026-10-23', 15), '2026-11-07');
+  assert.equal(N.somarDias('2026-12-20', 15), '2027-01-04');
+  assert.deepEqual(N.situacaoPrazo('2026-11-07', '2026-10-29'), { dias: 9, vencido: false, texto: 'vence em 07/11/2026 (faltam 9 dias)' });
+  assert.equal(N.situacaoPrazo('2026-11-07', '2026-11-07').texto, 'vence hoje (07/11/2026)');
+  assert.deepEqual(N.situacaoPrazo('2026-11-07', '2026-11-10'), { dias: -3, vencido: true, texto: 'vencido há 3 dias (07/11/2026)' });
+  assert.equal(N.situacaoPrazo('2026-11-07', '2026-11-06').texto, 'vence em 07/11/2026 (falta 1 dia)');
+});
+
+test('arquivo de agenda (.ics) com alarme na véspera', () => {
+  const t = N.ics({ uid: 'prazo-x1', data: '2026-11-07', titulo: 'Prazo: Fulano, de Tal', descricao: 'Linha 1\nLinha; 2' });
+  for (const x of ['BEGIN:VCALENDAR', 'UID:prazo-x1@fiscal-passeriformes', 'DTSTART;VALUE=DATE:20261107', 'DTEND;VALUE=DATE:20261108',
+    'SUMMARY:Prazo: Fulano\\, de Tal', 'DESCRIPTION:Linha 1\\nLinha\\; 2', 'BEGIN:VALARM', 'TRIGGER:-PT15H', 'END:VCALENDAR']) assert.ok(t.includes(x), 'faltou ' + x);
+  assert.ok(t.includes('\r\n'));
+});
+
+test('relatório da vistoria cita a notificação', () => {
+  const t = N.textoRelatorio({ criador: { nome: 'A', cpf: '1' }, vistoria: { data: '2026-10-23', notificacao: { ciencia: '2026-10-23', prazo: 15, objeto: 'identificar as gaiolas' } }, resultado: 'Irregular' });
+  assert.ok(t.includes('Notificado em 23/10/2026 para regularizar em 15 dias, até 07/11/2026: identificar as gaiolas (IN SEMA 04/2022, art. 64).'));
+  const t2 = N.textoAbordagem({ prazo: { data: '2026-11-01', motivo: 'apresentar documentos' } });
+  assert.ok(t2.includes('Prazo / retorno: 01/11/2026 (apresentar documentos)'));
+});

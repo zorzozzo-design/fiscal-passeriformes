@@ -18,6 +18,8 @@ const filtroAb = { status: '', q: '' };
 const dataAb = ab => ab.data || ab.denuncia?.data || ab.criadoEm || '';
 const agoraLocal = () => { const d = new Date(); return `${hojeIso()}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 const fmtDataAb = s => { const m = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}:\d{2}))?/.exec(s || ''); return m ? `${m[3]}/${m[2]}/${m[1]}${m[4] ? ' ' + m[4] : ''}` : ''; };
+// Troca o HTML só se mudou (evita perder um clique quando o campo perde o foco e dispara "change").
+const porHtml = (el, h) => { if (el.dataset.h !== h) { el.innerHTML = h; el.dataset.h = h; } };
 const criadorDoAbordado = ab => db.criadores[soDigitos(ab.pessoa?.cpf || '')] || null;
 
 async function novaAbordagem(status) {
@@ -137,6 +139,13 @@ function telaAbordagem(id) {
       <div class="grade">${campo('docs.ai', 'Auto de Infração nº')}${campo('docs.termoApreensao', 'Termo de Apreensão nº')}${campo('docs.termoDeposito', 'Termo de Depósito nº')}${campo('docs.bo', 'BO / COP nº')}${campo('docs.tco', 'TCO nº')}</div>
     </div>
 
+    <div class="card"><h2>Prazo / retorno</h2>
+      <div class="grade">${campo('prazo.data', 'Data', 'date')}<div><label for="ab-prazo-situacao">Situação do prazo</label>
+        <select id="ab-prazo-situacao" data-k="prazo.situacao">${opcoes({ concluido: 'Concluído' }, ab.prazo?.situacao, 'Em aberto')}</select></div></div>
+      ${campo('prazo.motivo', 'Motivo', 'text', 'placeholder="Ex.: apresentar documentos das aves; retornar ao local"')}
+      <p class="peq" id="ab-prazo-m"></p>
+    </div>
+
     <div class="card"><h2>Relato</h2>
       <div class="frases">${FRASES_AB.map(f => `<button class="sec ab-frase" type="button">${esc(f)}</button>`).join('')}</div>
       <textarea id="ab-relato" data-k="relato" rows="6" placeholder="Clique nas frases acima e complete digitando">${esc(ab.relato || '')}</textarea>
@@ -171,13 +180,17 @@ function telaAbordagem(id) {
     for (const l of document.querySelectorAll('#ab-aves .ab-ave')) {
       const t = l.querySelector('[data-f="especie"]').value, i = Normas.identificarEspecie(t);
       const am = i.cientifico && Normas.ameaca(i.cientifico), ex = i.cientifico && Normas.especie(i.cientifico);
-      l.querySelector('.ab-info').innerHTML = !t ? '' : !i.cientifico ? '<span class="muted">Espécie não identificada: escolha da lista ou digite o nome científico.</span>'
-        : `<i>${esc(i.cientifico)}</i>${ex ? ` · Anexo ${ex.anexo}` : ' · fora dos Anexos'} ${am ? chipAmeaca(am) : ''}`;
+      porHtml(l.querySelector('.ab-info'), !t ? '' : !i.cientifico ? '<span class="muted">Espécie não identificada: escolha da lista ou digite o nome científico.</span>'
+        : `<i>${esc(i.cientifico)}</i>${ex ? ` · Anexo ${ex.anexo}` : ' · fora dos Anexos'} ${am ? chipAmeaca(am) : ''}`);
     }
     const r = Normas.resumoAbordagem(ab), cri = criadorDoAbordado(ab);
-    $('#ab-resumo').innerHTML = r.aves ? `<b>${r.aves} ave(s)</b> de ${r.especies} espécie(s)${r.ameacadas ? `, ${chip(r.ameacadas + ' ameaçada(s)', 'ameaca')}` : ''} · multa de referência ${Normas.reais(r.multa)}` : '<span class="muted">Nenhuma ave registrada.</span>';
+    porHtml($('#ab-resumo'), r.aves ? `<b>${r.aves} ave(s)</b> de ${r.especies} espécie(s)${r.ameacadas ? `, ${chip(r.ameacadas + ' ameaçada(s)', 'ameaca')}` : ''} · multa de referência ${Normas.reais(r.multa)}` : '<span class="muted">Nenhuma ave registrada.</span>');
     const cpf = soDigitos(ab.pessoa?.cpf || '');
-    $('#ab-cpf-m').innerHTML = cpf.length !== 11 ? '' : cri ? `Criador cadastrado no SISPASS: <a href="#/c/${cri.cpf}">${esc(cri.nome)}</a> (registro ${esc(cri.registro)})` : '<span class="erro-txt">CPF sem cadastro na base de criadores.</span>';
+    porHtml($('#ab-cpf-m'), cpf.length !== 11 ? '' : cri ? `Criador cadastrado no SISPASS: <a href="#/c/${cri.cpf}">${esc(cri.nome)}</a> (registro ${esc(cri.registro)})` : '<span class="erro-txt">CPF sem cadastro na base de criadores.</span>');
+    const pr = ab.prazo || {};
+    // Só redesenha se mudou: o "change" do campo ao perder o foco não pode trocar o botão no meio do clique.
+    const htmlPrazo = pr.data && pr.situacao !== 'concluido' ? `${esc(Normas.situacaoPrazo(pr.data, hojeIso()).texto)} ${botaoAgendaAb(ab)}` : '';
+    if ($('#ab-prazo-m').dataset.h !== htmlPrazo) { $('#ab-prazo-m').innerHTML = htmlPrazo; $('#ab-prazo-m').dataset.h = htmlPrazo; ligarAgenda(); }
     const lat = ab.local?.lat, lon = ab.local?.lon, end = [ab.local?.endereco, ab.local?.bairro, ab.local?.cidade, 'RS'].filter(Boolean).join(', ');
     $('#ab-mapa').href = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(lat && lon ? `${lat},${lon}` : end);
   };
