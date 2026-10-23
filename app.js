@@ -171,6 +171,8 @@ let rolagem = 0;
 
 function resumoDe(c) { return c.rel ? resumo(c.rel, db.cfg) : null; }
 
+// CPFs da última lista exibida, na ordem, para navegar entre fichas (anterior/próximo).
+let sequencia = [];
 function telaLista() {
   const todos = Object.values(db.criadores).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   if (!todos.length) {
@@ -206,6 +208,7 @@ function telaLista() {
       const anilhas = c.rel?.secoes.Plantel?.map(a => a['Código anilha']).join(' ') || '';
       return avesDe(c).length > 0 || norm(`${c.nome} ${c.endereco} ${c.bairro} ${anilhas}`).includes(q);
     });
+    sequencia = vis.map(c => c.cpf);
     const comAve = vis.filter(c => avesDe(c).length), totalAves = comAve.reduce((n, c) => n + avesDe(c).length, 0);
     $('#cont').innerHTML = `${vis.length} de ${todos.length} criadores` + (totalAves
       ? `<br><b>${comAve.length} criador(es) com ${totalAves} ave(s) ativa(s) de "${esc(filtro.q)}"</b> <span class="muted">(só entre os ${todos.filter(c => c.rel).length} com relatório importado)</span>` : '');
@@ -662,6 +665,13 @@ function imprimirTexto(t) {
 const COLS_PLANTEL = ['Situação', 'Nome Popular', 'Espécie', 'Sexo', 'Nascimento', 'Código anilha', 'Diâmetro anilha', 'Marcação', 'ULTIMA_OPERACAO', 'DATA_OPERACAO'];
 const PRINCIPAIS = ['Dados do Criador', 'Plantel', 'Histórico de Operações', 'Transferências Recebidas', 'Transferências Solicitadas'];
 
+function navSequencia(cpf) {
+  const i = sequencia.indexOf(cpf);
+  if (i < 0 || sequencia.length < 2) return '';
+  const ir = (j, t) => j >= 0 && j < sequencia.length ? `<a class="btn sec" id="nav-${t}" href="#/c/${sequencia[j]}">${t === 'ant' ? '← Anterior' : 'Próximo →'}</a>` : '';
+  return `<span class="nav-seq">${ir(i - 1, 'ant')} <span class="muted peq">${i + 1} de ${sequencia.length} da lista</span> ${ir(i + 1, 'prox')}</span>`;
+}
+
 function telaFicha(cpf) {
   const c = db.criadores[cpf];
   if (!c) { app.innerHTML = '<div class="card">Criador não encontrado. <a href="#/">Voltar</a></div>'; return; }
@@ -719,7 +729,7 @@ function telaFicha(cpf) {
   ];
   const abaAtual = ABAS.some(a => a[0] === lerPref('fp-aba', '')) ? lerPref('fp-aba', '') : 'verif';
   app.innerHTML = `
-    <p class="linha"><a href="#/">← Criadores</a> <a href="javascript:history.back()">← Voltar</a></p>
+    <p class="linha"><a href="#/">← Criadores</a> <a href="javascript:history.back()">← Voltar</a>${navSequencia(cpf)}</p>
     <div class="ficha">
       <aside class="perfil">
     <div class="card ${e.ameacadas.length ? 'ameacado' : ''}" id="topo-ficha">

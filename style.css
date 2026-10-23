@@ -130,3 +130,5 @@ main:has(.ficha) { max-width: 1320px; }
   body.imprimindo > :not(#area-print) { display: none !important; }
   body.imprimindo #area-print { display: block; white-space: pre-wrap; font: 11pt/1.45 system-ui, sans-serif; color: #000; }
 }
+.nav-seq { margin-left: auto; display: inline-flex; gap: 8px; align-items: center; }
+.nav-seq .btn { padding: 5px 10px; }
