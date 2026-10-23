@@ -25,10 +25,9 @@ const INDICIOS = { zerado: 'plantel zerado com movimentação', saidaRapida: 'av
 // "meta" guarda o salt e as configurações (cifradas), e serve para conferir a senha.
 function idb() {
   return new Promise((ok, erro) => {
-    const r = indexedDB.open('fiscal-passeriformes', 2);
+    const r = indexedDB.open('fiscal-passeriformes', 3);
     r.onupgradeneeded = () => {
-      if (!r.result.objectStoreNames.contains('kv')) r.result.createObjectStore('kv');
-      r.result.createObjectStore('criadores');
+      for (const loja of ['kv', 'criadores', 'abordagens']) if (!r.result.objectStoreNames.contains(loja)) r.result.createObjectStore(loja);
     };
     r.onsuccess = () => ok(r.result);
     r.onerror = () => erro(r.error);
@@ -65,24 +64,30 @@ async function decifrar(chave, cofre) {
 
 let chave = null, salt = null, db = null;
 const sujos = new Set(); // CPFs alterados desde o último salvamento
+const sujosAb = new Set(); // abordagens alteradas ou excluídas
 async function salvar() {
   versao++;
-  const lote = [...sujos];
-  sujos.clear();
+  const lote = [...sujos], loteAb = [...sujosAb];
+  sujos.clear(); sujosAb.clear();
   const meta = await cifrar(chave, salt, { cfg: db.cfg });
   const regs = await Promise.all(lote.map(async cpf => [cpf, await cifrar(chave, salt, db.criadores[cpf])]));
+  const regsAb = await Promise.all(loteAb.map(async id => [id, db.abordagens[id] ? await cifrar(chave, salt, db.abordagens[id]) : null]));
   await tx('criadores', 'readwrite', s => regs.forEach(([cpf, v]) => s.put(v, cpf)));
+  if (regsAb.length) await tx('abordagens', 'readwrite', s => regsAb.forEach(([id, v]) => v ? s.put(v, id) : s.delete(id)));
   await tx('kv', 'readwrite', s => s.put(meta, 'meta'));
 }
-async function carregar(meta) {
-  db = { cfg: (await decifrar(chave, meta)).cfg, criadores: {} };
+async function lerLoja(loja) {
   const d = await idb();
-  const pares = await new Promise((ok, erro) => {
-    const out = [], r = d.transaction('criadores').objectStore('criadores').openCursor();
+  return new Promise((ok, erro) => {
+    const out = [], r = d.transaction(loja).objectStore(loja).openCursor();
     r.onsuccess = () => { const c = r.result; if (!c) return ok(out); out.push([c.key, c.value]); c.continue(); };
     r.onerror = () => erro(r.error);
   });
-  for (const [cpf, v] of pares) db.criadores[cpf] = await decifrar(chave, v);
+}
+async function carregar(meta) {
+  db = { cfg: (await decifrar(chave, meta)).cfg, criadores: {}, abordagens: {} };
+  for (const [cpf, v] of await lerLoja('criadores')) db.criadores[cpf] = await decifrar(chave, v);
+  for (const [id, v] of await lerLoja('abordagens')) db.abordagens[id] = await decifrar(chave, v);
   for (const c of Object.values(db.criadores)) if (migrar(c)) sujos.add(c.cpf);
   if (sujos.size) await salvar();
 }
@@ -115,6 +120,7 @@ async function telaSenha() {
         if (meta) await carregar(meta);
         else {
           db = await decifrar(chave, antigo);
+          db.abordagens ||= {};
           Object.values(db.criadores).forEach(migrar);
           Object.keys(db.criadores).forEach(cpf => sujos.add(cpf));
           await salvar();
@@ -124,7 +130,7 @@ async function telaSenha() {
         if (s1 !== $('#s2').value) throw new Error('As senhas não conferem.');
         salt = crypto.getRandomValues(new Uint8Array(16));
         chave = await derivar(s1, salt);
-        db = { cfg: { idadeMax: 20, anosSemMov: 10 }, criadores: {} };
+        db = { cfg: { idadeMax: 20, anosSemMov: 10 }, criadores: {}, abordagens: {} };
         await salvar();
       }
       $('#nav').hidden = false;
@@ -711,7 +717,7 @@ function telaFicha(cpf) {
   // Abas da coluna direita: [chave, rótulo, contador, conteúdo]
   const ABAS = [
     ['verif', 'Verificação', abertos.length, verif],
-    ['vistoria', 'Vistoria', e.vistorias.length, formVistoria(c, e) + vistorias + (c.notas ? card('Anotações antigas', `<p class="peq">${esc(c.notas)}</p>`) : '')],
+    ['vistoria', 'Vistoria', e.vistorias.length, formVistoria(c, e) + vistorias + cardAbordagensDoCpf(c.cpf) + (c.notas ? card('Anotações antigas', `<p class="peq">${esc(c.notas)}</p>`) : '')],
     ['msg', 'Mensagens', '', cardMensagens(c, e) || card('Mensagens', '<p class="muted">Sem itens para montar mensagem.</p>')],
     ['plantel', 'Plantel', r ? r.ativas : '', !r ? semRel : card('Resumo do SISPASS', `<div class="grade">
         <div><span>Aves ativas</span>${r.ativas} de ${r.total}</div>
@@ -973,6 +979,8 @@ function telaPainel() {
       ${card('Com pendência em aberto', conta('abertos'), '#/pendencias', conta('abertos') ? 'ruim' : '')}
     </div>
 
+    ${kpisAbordagens(card)}
+
     <h2 class="sec-tit">Titulares</h2>
     <div class="kpis">
       ${card('Mulheres', conta('F'), '#/?f=F', '', `${sexoConf('F')} confirmadas; demais estimadas pelo nome`)}
@@ -1093,6 +1101,12 @@ function exportarPlanilha() {
     'Infração grave (art. 62, §2º)': (v.graves || []).join(', '), 'Itens irregulares': (v.irregular || []).length, 'Observações': v.obs }))));
   aba('Pendências', todos.flatMap(c => estado(c).abertos.map(i => ({ CPF: fmtCpf(c.cpf), Criador: c.nome, Cidade: c.cidade, Destino: i.destino,
     Tipo: i.tipo, Item: i.titulo, Detalhe: i.texto, Base: i.base, 'Providência': i.providencia, 'Data do fato': i.data }))));
+  const abs = Object.values(db.abordagens);
+  aba('Abordagens', abs.map(linhaAbordagem));
+  aba('Abordagens-Aves', abs.flatMap(ab => Normas.resumoAbordagem(ab).linhas.map(l => ({ Abordagem: ab.data || ab.denuncia?.data || '', Abordado: ab.pessoa?.nome || '',
+    Cidade: ab.local?.cidade || '', Quantidade: l.qtd, Ave: l.comum || l.especie, 'Espécie': l.cientifico, Sexo: l.sexo || '', Anilha: l.anilha || '',
+    Estado: l.estado || '', Destino: Normas.DESTINO_AVE[l.destino] || '', 'Ameaçada': l.ameaca ? [l.ameaca.rs && 'RS ' + l.ameaca.rs, l.ameaca.br && 'BR ' + l.ameaca.br].filter(Boolean).join(', ') : '' }))));
+  aba('_abordagens', abs.map(ab => ({ id: ab.id, dados: JSON.stringify(ab) })));
   aba('_relatorios', relatorios);
   XLSX.writeFile(wb, `fiscal-passeriformes-${hojeIso()}.xlsx`);
   return `Planilha exportada: ${todos.length} criadores, ${comRel.length} com relatório.`;
@@ -1118,6 +1132,8 @@ function restaurarPlanilha(wb) {
       endereco: rel.criador.endereco, cidade: cidadeDe(rel.criador.municipio), rel: null };
     outro.criadores[rel.cpf].rel = { importadoEm: l['Importado em'], criador: rel.criador, secoes: rel.secoes };
   }
+  outro.abordagens = {};
+  for (const l of wb.Sheets._abordagens ? ler('_abordagens') : []) { try { const ab = JSON.parse(l.dados); if (ab.id) outro.abordagens[ab.id] = ab; } catch { /* linha editada à mão */ } }
   return `Planilha de recuperação importada: ${mesclar(outro)} alteração(ões).`;
 }
 
@@ -1141,6 +1157,10 @@ function mesclar(outro) {
     if (b.sexo && !a.sexo) a.sexo = b.sexo;
     if (b.notas && !a.notas) a.notas = b.notas;
     if (JSON.stringify(a) !== antes) { sujos.add(cpf); n++; }
+  }
+  for (const [id, b] of Object.entries(outro.abordagens || {})) { // vale a versão editada por último
+    const a = db.abordagens[id];
+    if (!a || (b.atualizadoEm || '') > (a.atualizadoEm || '')) { db.abordagens[id] = b; sujosAb.add(id); n++; }
   }
   return n;
 }
@@ -1275,6 +1295,8 @@ function rotear() {
   if (h === '#/pendencias') return telaPendencias();
   if (h === '#/vinculos') return telaVinculos();
   if (h === '#/painel') return telaPainel();
+  if (h === '#/abordagens') return telaAbordagens();
+  if (h.startsWith('#/ab/')) return telaAbordagem(h.slice(5));
   if (h.startsWith('#/?')) { // atalho vindo do painel: #/?f=filtro&cidade=X
     const q = new URLSearchParams(h.slice(3));
     filtro.status = q.get('f') || ''; filtro.cidade = q.get('cidade') || ''; filtro.q = q.get('q') || ''; rolagem = 0;

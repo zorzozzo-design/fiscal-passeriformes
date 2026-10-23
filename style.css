@@ -132,3 +132,8 @@ main:has(.ficha) { max-width: 1320px; }
 }
 .nav-seq { margin-left: auto; display: inline-flex; gap: 8px; align-items: center; }
 .nav-seq .btn { padding: 5px 10px; }
+.ab-ave, .ab-pet { border-top: 1px solid var(--borda); padding: 8px 0; display: grid; gap: 6px; }
+.ab-ave-grade { display: grid; grid-template-columns: 80px 1fr; gap: 6px; }
+.ab-ave-grade > :nth-child(3) { grid-column: 1 / -1; }
+@media (min-width: 720px) { .ab-ave-grade { grid-template-columns: 80px 110px 1fr 110px 1.4fr auto; } .ab-ave-grade > :nth-child(3) { grid-column: auto; } }
+.ab-pet { grid-template-columns: 1fr 80px auto; align-items: center; }

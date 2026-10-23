@@ -154,3 +154,53 @@ test('relatório de vistoria em texto', () => {
     'Gaiolas sem identificação.', 'Licença suspensa no SISPASS em 22/10/2026', 'Sd PM Fulano']) assert.ok(t.includes(trecho), `faltou: ${trecho}`);
   assert.ok(!t.includes('undefined'));
 });
+
+// ---------- abordagens (denúncias e apreensões fora do SISPASS) ----------
+test('identifica espécie pelo nome popular, pela opção da lista e pelo científico', () => {
+  assert.equal(N.identificarEspecie('Cardeal-amarelo').cientifico, 'Gubernatrix cristata');
+  assert.equal(N.identificarEspecie('sabia laranjeira').cientifico, 'Turdus rufiventris');
+  assert.equal(N.identificarEspecie('tico-tico (Zonotrichia capensis)').cientifico, 'Zonotrichia capensis');
+  assert.equal(N.identificarEspecie('Gubernatrix cristata').comum, 'cardeal-amarelo');
+  assert.equal(N.identificarEspecie('papagaio').cientifico, '');
+  assert.ok(N.opcoesEspecies().includes('cardeal-amarelo (Gubernatrix cristata)'));
+});
+
+const abord = {
+  id: 'x1', status: 'atendida', data: '2026-10-22T09:30', equipe: 'Sd PM A e Sd PM B',
+  denuncia: { data: '2026-10-20', origem: 'Disque-denúncia', protocolo: '123/2026', texto: 'Muitas aves em gaiolas no pátio.' },
+  local: { endereco: 'Rua B, 20', bairro: 'Centro', cidade: 'Tramandaí', referencia: 'casa verde', lat: -29.98, lon: -50.13 },
+  pessoa: { nome: 'Beltrano da Silva', cpf: '52998224725', rg: '1234567890', nascimento: '1970-05-01', telefone: '51 99999-0000', endereco: 'Rua B, 20' },
+  documentacao: 'nenhuma',
+  aves: [
+    { especie: 'cardeal-amarelo (Gubernatrix cristata)', qtd: 1, sexo: 'M', anilha: '', estado: 'viva', destino: 'apreendida' },
+    { especie: 'Trinca-ferro', qtd: 3, sexo: '', anilha: '', estado: 'viva', destino: 'apreendida' },
+    { especie: 'Tico-tico', qtd: 1, sexo: 'F', anilha: 'ABC 123', estado: 'morta', destino: 'apreendida' },
+  ],
+  petrechos: [{ item: 'gaiola', qtd: 5 }, { item: 'alçapão', qtd: 1 }],
+  docs: { ai: '9999', termoApreensao: 'TA-1', termoDeposito: '', bo: '2026/555', tco: '' },
+  relato: 'No local, o morador apresentou as aves.',
+};
+
+test('resumo da abordagem: totais, ameaçadas e multa de referência', () => {
+  const r = N.resumoAbordagem(abord);
+  assert.equal(r.aves, 5);
+  assert.equal(r.especies, 3);
+  assert.equal(r.ameacadas, 1);
+  assert.equal(r.apreendidas, 5);
+  assert.equal(r.multa, 4 * 500 + 1 * 5000);
+  assert.equal(r.linhas[1].cientifico, 'Saltator similis');
+  assert.ok(r.linhas[0].ameaca);
+});
+
+test('relatório da abordagem em texto', () => {
+  const t = N.textoAbordagem(abord, { assinatura: 'Sd PM Fulano', criador: null });
+  for (const x of ['RELATÓRIO DE ABORDAGEM', 'Denúncia nº 123/2026', '20/10/2026', 'Data e hora da abordagem: 22/10/2026 09:30',
+    'Rua B, 20, Centro, Tramandaí', 'casa verde', '-29.98, -50.13', 'Beltrano da Silva', 'CPF 529.982.247-25', 'Não possui cadastro no SISPASS',
+    'Documentação apresentada: nenhuma', '5 indivíduos de 3 espécies, 1 de espécie ameaçada', '1 × cardeal-amarelo (Gubernatrix cristata), macho',
+    '3 × trinca-ferro-verdadeiro (Saltator similis)', 'anilha ABC 123', 'morta', '5 × gaiola', 'Lei 9.605/1998, art. 29, §1º, III', '§4º, I',
+    'Decreto 6.514/2008, art. 24, §3º, III', 'R$ 7.000,00', 'Auto de Infração nº 9999', 'Termo de Apreensão nº TA-1', 'BO nº 2026/555',
+    'No local, o morador apresentou as aves.', 'Sd PM Fulano']) assert.ok(t.includes(x), 'faltou: ' + x);
+  assert.ok(!t.includes('undefined') && !t.includes('Termo de Depósito'));
+  const t2 = N.textoAbordagem({ ...abord, aves: [{ especie: 'Tico-tico', qtd: 2 }] }, { criador: { nome: 'Beltrano', registro: '77' } });
+  assert.ok(t2.includes('Criador cadastrado no SISPASS (registro 77)') && !t2.includes('§4º, I'));
+});

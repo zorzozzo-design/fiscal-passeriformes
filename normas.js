@@ -361,5 +361,80 @@ function textoRelatorio({ criador: c, vistoria: v, resultado, ctf, licenca, conf
   return L.join('\n').trim();
 }
 
-globalThis.Normas = { especie, ameaca, periodo, situacaoCTF, situacaoLicenca, ameacadasDoPlantel, verificar, textoSuspensao, fmt, canon, CONF, resumoConferencia, textoRelatorio };
+// ---------- Abordagens: denúncias, apreensões e guarda sem autorização ----------
+const semAcento = t => String(t ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+const capital = n => n.charAt(0).toUpperCase() + n.slice(1);
+const TODAS = [...TAB_I, ...TAB_II];
+// Nome digitado (popular, "popular (Científico)" ou científico) → { cientifico, comum }. Sem correspondência: cientifico vazio.
+function identificarEspecie(texto) {
+  const t = String(texto ?? '').trim(), par = /\(([^)]+)\)/.exec(t);
+  const porCient = n => { const c = canon(n); const e = TODAS.find(x => casa(c, x.c)); if (e) return { cientifico: e.nome, comum: e.comum };
+    const am = [...AM_RS, ...AM_BR].find(x => casa(c, x.c)); return am ? { cientifico: capital(am.c), comum: '' } : null; };
+  if (par) { const r = porCient(par[1]); if (r) return r; }
+  const p = semAcento(t.replace(/\(.*?\)/g, '')).replace(/ /g, '-');
+  const exato = TODAS.find(e => semAcento(e.comum) === p);
+  if (exato) return { cientifico: exato.nome, comum: exato.comum };
+  const pref = [...new Set(TODAS.filter(e => semAcento(e.comum).startsWith(p + '-')).map(e => e.nome))];
+  if (p && pref.length === 1) { const e = TODAS.find(x => x.nome === pref[0]); return { cientifico: e.nome, comum: e.comum }; }
+  return porCient(t) || { cientifico: '', comum: '' };
+}
+const opcoesEspecies = () => [...new Set([...TODAS.map(e => `${e.comum} (${e.nome})`),
+  ...[...AM_RS, ...AM_BR].filter(a => !TODAS.some(e => casa(a.c, e.c))).map(a => capital(a.c))])].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+
+const MULTA = { comum: 500, ameacada: 5000 }; // Decreto 6.514/2008, art. 24, I e II
+const ESTADO_AVE = { viva: 'viva', ferida: 'ferida', morta: 'morta' };
+const DESTINO_AVE = { apreendida: 'apreendida e encaminhada ao CETAS/CRAF', deposito: 'deixada com depositário', soltura: 'solta no local', entrega: 'entregue voluntariamente' };
+const SEXO_AVE = { M: 'macho', F: 'fêmea' };
+const DOCUMENTACAO = { nenhuma: 'nenhuma', vencida: 'licença ou cadastro vencido', ctf: 'apenas CTF', outra: 'outra (ver relato)' };
+function resumoAbordagem(ab) {
+  const linhas = (ab.aves || []).filter(a => a.especie || +a.qtd).map(a => {
+    const id = identificarEspecie(a.especie), am = id.cientifico ? ameaca(id.cientifico) : null, qtd = Math.max(1, parseInt(a.qtd) || 1);
+    return { ...a, qtd, ...id, ameaca: am, anexo: id.cientifico ? especie(id.cientifico)?.anexo || '' : '', multaUnit: am ? MULTA.ameacada : MULTA.comum };
+  });
+  const soma = f => linhas.reduce((n, l) => n + (f(l) ? l.qtd : 0), 0);
+  return { linhas, aves: soma(() => true), ameacadas: soma(l => l.ameaca), apreendidas: soma(l => l.destino === 'apreendida'),
+    especies: new Set(linhas.map(l => l.cientifico || semAcento(l.especie))).size, multa: linhas.reduce((n, l) => n + l.qtd * l.multaUnit, 0) };
+}
+const reais = v => 'R$ ' + v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtCpf = c => { const d = String(c ?? '').replace(/\D/g, ''); return d.length === 11 ? d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : d; };
+const dataHora = s => { const m = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}:\d{2}))?/.exec(s || ''); return m ? `${m[3]}/${m[2]}/${m[1]}${m[4] ? ' ' + m[4] : ''}` : (s || ''); };
+function textoAbordagem(ab, { assinatura = '', criador = null } = {}) {
+  const r = resumoAbordagem(ab), L = [], d = ab.denuncia || {}, lo = ab.local || {}, pe = ab.pessoa || {}, dc = ab.docs || {};
+  const junta = (...x) => x.filter(Boolean).join(', ');
+  L.push('RELATÓRIO DE ABORDAGEM - FAUNA SILVESTRE (PASSERIFORMES)', '');
+  if (d.protocolo || d.data || d.origem) L.push(`Origem: ${d.protocolo ? `Denúncia nº ${d.protocolo}` : 'Denúncia'}${d.origem ? ` (${d.origem})` : ''}${d.data ? `, recebida em ${dataHora(d.data)}` : ''}.`);
+  if (d.texto) L.push(`Teor da denúncia: ${d.texto}`);
+  if (ab.data) L.push(`Data e hora da abordagem: ${dataHora(ab.data)}`);
+  if (ab.equipe) L.push(`Equipe: ${ab.equipe}`);
+  L.push('', 'LOCAL DOS FATOS', junta(lo.endereco, lo.bairro, lo.cidade) || 'não informado');
+  if (lo.referencia) L.push(`Referência: ${lo.referencia}`);
+  if (lo.lat != null && lo.lon != null && lo.lat !== '') L.push(`Coordenadas: ${lo.lat}, ${lo.lon}`);
+  L.push('', 'ABORDADO');
+  L.push(junta(pe.nome || 'não identificado', pe.cpf && `CPF ${fmtCpf(pe.cpf)}`, pe.rg && `RG ${pe.rg}`, pe.nascimento && `nascido(a) em ${dataHora(pe.nascimento)}`, pe.telefone && `telefone ${pe.telefone}`));
+  if (pe.endereco) L.push(`Endereço: ${pe.endereco}`);
+  L.push(criador ? `Criador cadastrado no SISPASS (registro ${criador.registro || '?'}).` : 'Não possui cadastro no SISPASS na base consultada.');
+  if (ab.documentacao) L.push(`Documentação apresentada: ${DOCUMENTACAO[ab.documentacao] || ab.documentacao}`);
+  if (r.linhas.length) {
+    L.push('', `AVES (${r.aves} indivíduos de ${r.especies} espécies${r.ameacadas ? `, ${r.ameacadas} de espécie ameaçada` : ''})`);
+    for (const l of r.linhas) L.push(`- ${l.qtd} × ${l.comum || l.especie}${l.cientifico ? ` (${l.cientifico})` : ''}` + [SEXO_AVE[l.sexo], l.anilha ? `anilha ${l.anilha}` : 'sem anilha',
+      ESTADO_AVE[l.estado], DESTINO_AVE[l.destino], l.ameaca && `ameaçada (${[l.ameaca.rs && 'RS ' + l.ameaca.rs, l.ameaca.br && 'BR ' + l.ameaca.br].filter(Boolean).join(', ')})`]
+      .filter(Boolean).map(x => ', ' + x).join(''));
+  }
+  const pet = (ab.petrechos || []).filter(p => p.item);
+  if (pet.length) { L.push('', 'PETRECHOS'); pet.forEach(p => L.push(`- ${Math.max(1, parseInt(p.qtd) || 1)} × ${p.item}`)); }
+  if (r.linhas.length && !criador) {
+    L.push('', 'ENQUADRAMENTO');
+    L.push(`- Crime: Lei 9.605/1998, art. 29, §1º, III (guardar ou ter em cativeiro espécimes da fauna silvestre sem permissão, licença ou autorização)${r.ameacadas ? '; pena aumentada de metade pelo §4º, I (espécie ameaçada)' : ''}.`);
+    const comuns = r.aves - r.ameacadas;
+    L.push(`- Infração administrativa: Decreto 6.514/2008, art. 24, §3º, III: ${[comuns && `${comuns} × ${reais(MULTA.comum)} (inciso I)`, r.ameacadas && `${r.ameacadas} × ${reais(MULTA.ameacada)} (inciso II)`].filter(Boolean).join(' + ')} = ${reais(r.multa)} (valor de referência).`);
+  }
+  const docs = [['ai', 'Auto de Infração'], ['termoApreensao', 'Termo de Apreensão'], ['termoDeposito', 'Termo de Depósito'], ['bo', 'BO'], ['tco', 'TCO']].filter(([k]) => dc[k]);
+  if (docs.length) { L.push('', 'DOCUMENTOS'); docs.forEach(([k, n]) => L.push(`- ${n} nº ${dc[k]}`)); }
+  if (ab.relato) L.push('', 'RELATO', ab.relato);
+  if (assinatura) L.push('', assinatura);
+  return L.join('\n').trim();
+}
+
+globalThis.Normas = { especie, ameaca, periodo, situacaoCTF, situacaoLicenca, ameacadasDoPlantel, verificar, textoSuspensao, fmt, canon, CONF, resumoConferencia, textoRelatorio,
+  identificarEspecie, opcoesEspecies, resumoAbordagem, textoAbordagem, ESTADO_AVE, DESTINO_AVE, DOCUMENTACAO, MULTA, reais };
 })();
