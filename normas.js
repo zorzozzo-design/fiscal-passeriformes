@@ -318,5 +318,48 @@ function textoSuspensao(data, motivos, bases) {
   return `Suspensa em ${fmt(data)} por fiscalização PATRAM/BM. Motivo: ${motivos.join('; ')}. Base: ${BASE}, ${bases.join('; ')}.`;
 }
 
-globalThis.Normas = { especie, ameaca, periodo, situacaoCTF, situacaoLicenca, ameacadasDoPlantel, verificar, textoSuspensao, fmt, canon };
+// ---------- Conferência ave por ave e relatório de vistoria ----------
+const CONF = { ok: 'Conferida', ausente: 'Ausente no local', anilha: 'Anilha divergente, violada ou adulterada', divergente: 'Espécie ou sexo divergente do registro' };
+const rotuloAve = a => `${a['Nome Popular'] || a['Espécie'] || '?'}${a.Sexo ? ' ' + a.Sexo : ''} (${a['Código anilha'] || 'sem anilha'})`;
+function resumoConferencia(ativas, v) {
+  const st = v.aves || {}, r = { total: ativas.length, conferidas: [], ausentes: [], anilha: [], divergente: [], naoConferidas: [] };
+  const alvo = { ok: 'conferidas', ausente: 'ausentes', anilha: 'anilha', divergente: 'divergente' };
+  for (const a of ativas) r[alvo[st[chaveAnilha(a['Código anilha'])]] || 'naoConferidas'].push(rotuloAve(a));
+  r.extras = (v.extras || []).filter(e => e.descricao || e.anilha).map(e => `${e.descricao || 'Ave'} (${e.anilha || 'sem anilha'})`);
+  r.irregular = !!(r.ausentes.length || r.anilha.length || r.divergente.length || r.extras.length);
+  return r;
+}
+const dataIso = s => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s || ''); return m ? `${m[3]}/${m[2]}/${m[1]}` : (s || ''); };
+function textoRelatorio({ criador: c, vistoria: v, resultado, ctf, licenca, conf, graves = [], constatacoes = [], providencias = [], assinatura }) {
+  const L = [];
+  L.push('RELATÓRIO DE VISTORIA - CRIADOR AMADORISTA DE PASSERIFORMES', '');
+  L.push(`Criador: ${c.nome}, CPF ${c.cpf}${c.registro ? ', registro SISPASS ' + c.registro : ''}`);
+  if (c.endereco) L.push(`Endereço cadastrado: ${c.endereco}`);
+  L.push(`Data da vistoria: ${dataIso(v.data)}`);
+  if (v.endereco) L.push(`Local vistoriado: ${v.endereco}`);
+  if (v.maneja) L.push(`Manejo das aves: ${v.maneja === 'titular' ? 'pelo próprio titular' : 'por terceiro' + (v.manejaNome ? ' (' + v.manejaNome + ')' : '')}`);
+  if (ctf) L.push(`CTF/APP: ${ctf}`);
+  if (licenca) L.push(licenca);
+  L.push(`Resultado: ${resultado}`, '');
+  if (conf) {
+    L.push('CONFERÊNCIA DO PLANTEL', `Plantel registrado: ${conf.total} aves ativas. Conferidas sem divergência: ${conf.conferidas.length}.`);
+    const bloco = (rot, arr) => { if (arr.length) L.push(`${rot} (${arr.length}): ${arr.join('; ')}`); };
+    bloco('Ausentes no local', conf.ausentes); bloco(CONF.anilha, conf.anilha); bloco(CONF.divergente, conf.divergente);
+    bloco('Sem registro no plantel', conf.extras);
+    if (conf.naoConferidas.length) L.push(`Não conferidas: ${conf.naoConferidas.length}`);
+    L.push('');
+  }
+  if (graves.length || constatacoes.length) {
+    L.push('CONSTATAÇÕES');
+    graves.forEach(g => L.push(`- ${g}`));
+    constatacoes.forEach(k => L.push(`- ${k.titulo}: ${k.texto}${k.base ? ' (' + k.base + ')' : ''}`));
+    L.push('');
+  }
+  if (v.obs) L.push('OBSERVAÇÕES', v.obs, '');
+  if (providencias.length) { L.push('PROVIDÊNCIAS'); providencias.forEach(p => L.push(`- ${p}`)); L.push(''); }
+  if (assinatura) L.push(assinatura);
+  return L.join('\n').trim();
+}
+
+globalThis.Normas = { especie, ameaca, periodo, situacaoCTF, situacaoLicenca, ameacadasDoPlantel, verificar, textoSuspensao, fmt, canon, CONF, resumoConferencia, textoRelatorio };
 })();

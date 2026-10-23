@@ -114,3 +114,43 @@ test('texto de suspensão para o SISPASS', () => {
   assert.equal(N.textoSuspensao(new Date(2026, 9, 18), ['Aves sem anilha ou sem origem legal'], ['art. 62, §2º, III']),
     'Suspensa em 18/10/2026 por fiscalização PATRAM/BM. Motivo: Aves sem anilha ou sem origem legal. Base: IN SEMA 04/2022, art. 62, §2º, III.');
 });
+
+// ---------- fase 4: conferência ave por ave e relatório de vistoria ----------
+const ativasConf = [
+  { 'Situação': 'Ativa', 'Nome Popular': 'Curió', 'Sexo': 'M', 'Código anilha': 'A1' },
+  { 'Situação': 'Ativa', 'Nome Popular': 'Curió', 'Sexo': 'F', 'Código anilha': 'A2' },
+  { 'Situação': 'Ativa', 'Nome Popular': 'Trinca-ferro', 'Sexo': 'M', 'Código anilha': 'A3' },
+  { 'Situação': 'Ativa', 'Nome Popular': 'Canário', 'Sexo': 'M', 'Código anilha': 'A4' },
+  { 'Situação': 'Ativa', 'Nome Popular': 'Coleiro', 'Sexo': 'M', 'Código anilha': 'A5' },
+];
+const vistConf = { data: '2026-10-22', resultado: 'irregular', maneja: 'outro', manejaNome: 'genro, Fulano', obs: 'Gaiolas sem identificação.',
+  aves: { A1: 'ok', A2: 'ausente', A3: 'anilha', A4: 'divergente' }, extras: [{ descricao: 'Pintassilgo macho', anilha: '' }], graves: ['III'] };
+
+test('resumo da conferência do plantel', () => {
+  const r = N.resumoConferencia(ativasConf, vistConf);
+  assert.equal(r.total, 5);
+  assert.deepEqual(r.conferidas, ['Curió M (A1)']);
+  assert.deepEqual(r.ausentes, ['Curió F (A2)']);
+  assert.deepEqual(r.anilha, ['Trinca-ferro M (A3)']);
+  assert.deepEqual(r.divergente, ['Canário M (A4)']);
+  assert.deepEqual(r.naoConferidas, ['Coleiro M (A5)']);
+  assert.deepEqual(r.extras, ['Pintassilgo macho (sem anilha)']);
+  assert.equal(r.irregular, true);
+  assert.equal(N.resumoConferencia(ativasConf.slice(0, 1), { aves: { A1: 'ok' } }).irregular, false);
+});
+
+test('relatório de vistoria em texto', () => {
+  const t = N.textoRelatorio({
+    criador: { nome: 'Fulano de Tal', cpf: '111.444.777-35', registro: '123', endereco: 'Rua A, 10, Centro, Tramandaí' },
+    vistoria: vistConf, resultado: 'Irregular', ctf: 'ativo', licenca: 'Licença 2026/2027: sem licença',
+    conf: N.resumoConferencia(ativasConf, vistConf), graves: ['Animais silvestres sem origem legal (aves sem anilha) (art. 62, §2º, III)'],
+    constatacoes: [{ titulo: '8 licenças inadimplentes', texto: '8 licenças pendentes.', base: 'IN SEMA 04/2022, art. 42, I' }],
+    providencias: ['Licença suspensa no SISPASS em 22/10/2026'], assinatura: 'Sd PM Fulano',
+  });
+  for (const trecho of ['RELATÓRIO DE VISTORIA', 'Fulano de Tal', 'CPF 111.444.777-35', 'Data da vistoria: 22/10/2026',
+    'Plantel registrado: 5 aves ativas', 'Ausentes no local (1): Curió F (A2)', 'Anilha divergente, violada ou adulterada (1): Trinca-ferro M (A3)',
+    'Sem registro no plantel (1): Pintassilgo macho (sem anilha)', 'Não conferidas: 1', 'genro, Fulano',
+    '8 licenças inadimplentes: 8 licenças pendentes. (IN SEMA 04/2022, art. 42, I)', 'art. 62, §2º, III',
+    'Gaiolas sem identificação.', 'Licença suspensa no SISPASS em 22/10/2026', 'Sd PM Fulano']) assert.ok(t.includes(trecho), `faltou: ${trecho}`);
+  assert.ok(!t.includes('undefined'));
+});

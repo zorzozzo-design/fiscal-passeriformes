@@ -490,7 +490,7 @@ function ligarItens(depois) {
     const el = b.closest('.item'), c = db.criadores[el.dataset.cpf], id = el.dataset.id;
     c.acoes ||= {};
     if (b.classList.contains('b-desfazer')) delete c.acoes[id];
-    else c.acoes[id] = { data: new Date().toISOString().slice(0, 10), obs: prompt('Observação (opcional):') || '' };
+    else c.acoes[id] = { data: hojeIso(), obs: prompt('Observação (opcional):') || '' };
     sujos.add(c.cpf);
     await salvar();
     depois();
@@ -580,16 +580,35 @@ const FRASES = [
   'Notificado(a) a regularizar no prazo de 15 dias (art. 64).',
 ];
 
+// Data local (toISOString usa UTC e vira o dia depois das 21h no RS).
+const hojeIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const avesAtivas = c => (c.rel?.secoes.Plantel || []).filter(a => /^ativ/i.test(a['Situação'] || ''));
+// Linhas "espécie e sexo; anilha" das aves encontradas sem registro no plantel.
+const lerExtras = t => t.split('\n').map(l => l.trim()).filter(Boolean).map(l => { const [d, a] = l.split(';'); return { descricao: d.trim(), anilha: (a || '').trim() }; });
+function formConferencia(c) {
+  const aves = avesAtivas(c);
+  const opc = `<option value="">Não conferida</option>${Object.entries(Normas.CONF).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}`;
+  return `<h2 style="margin-top:12px">Conferência do plantel (${aves.length} ativas)</h2>
+    ${!aves.length ? '<p class="muted peq">Sem plantel importado. Use só o campo de aves sem registro, se for o caso.</p>' : `
+    <div class="linha"><button class="sec" id="v-todas" type="button">Marcar todas como conferidas</button> <span id="v-conf-cont" class="muted peq"></span></div>
+    <details id="v-conf" open><summary>Ave por ave</summary>
+    ${aves.map(a => `<div class="conf"><b>${esc(a['Nome Popular'] || a['Espécie'])}</b> <span class="peq">${esc(a.Sexo || '')} · anilha ${esc(a['Código anilha'])}${a['Diâmetro anilha'] ? ' · ' + esc(a['Diâmetro anilha']) + ' mm' : ''}</span>
+      <select class="v-ave" data-k="${esc(chaveAnilha(a['Código anilha']))}">${opc}</select></div>`).join('')}</details>`}
+    <label for="v-extras">Aves no local sem registro no plantel (uma por linha: espécie e sexo; anilha)</label>
+    <textarea id="v-extras" rows="2" placeholder="Ex.: Pintassilgo macho; sem anilha"></textarea>`;
+}
+
 function formVistoria(c, e) {
   const campo = e.itens.filter(i => i.grupo === 'campo' && i.aberto);
   return `<div class="card"><h2>Registrar vistoria</h2>
     <div class="grade">
-      <div><label for="v-data">Data</label><input id="v-data" type="date" value="${new Date().toISOString().slice(0, 10)}"></div>
+      <div><label for="v-data">Data</label><input id="v-data" type="date" value="${hojeIso()}"></div>
       <div><label for="v-res">Resultado</label><select id="v-res">${Object.entries(RESULTADO).map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}</select></div>
       <div><label for="v-maneja">Quem maneja as aves</label><select id="v-maneja"><option value="titular">O titular</option><option value="outro">Outra pessoa</option><option value="">Não verificado</option></select></div>
       <div><label for="v-maneja-nome">Se outra pessoa: nome e vínculo</label><input id="v-maneja-nome" placeholder="Ex.: marido, João da Silva"></div>
     </div>
     <label for="v-end">Endereço conferido</label><input id="v-end" value="${esc(c.endereco)}">
+    ${formConferencia(c)}
     ${campo.length ? `<h2 style="margin-top:12px">Itens a conferir (${campo.length})</h2><p class="muted peq">Já marcados como verificados. Mude só o que constatou irregular ou não conferiu.</p>
       ${campo.map(i => `<div class="conf"><b>${esc(i.titulo)}</b><div class="peq muted">${esc(i.texto)}</div>
         <select class="v-item" data-id="${esc(i.id)}"><option value="ok">Verificado, regular</option><option value="irregular">Irregular</option><option value="">Não conferido</option></select></div>`).join('')}` : ''}
@@ -603,6 +622,41 @@ function formVistoria(c, e) {
       <a class="btn sec" id="v-obs-whats" target="_blank" rel="noopener noreferrer" href="https://wa.me/">WhatsApp</a></div>
     <p><button id="b-vistoria" type="button">Salvar vistoria</button> <span id="m-vist" class="msg"></span></p>
   </div>`;
+}
+
+function resumoConfHtml(c, v) {
+  if (!v.aves && !v.extras?.length) return '';
+  const r = Normas.resumoConferencia(avesAtivas(c), v);
+  const n = (rot, arr) => arr.length ? `${rot}: ${arr.length}` : '';
+  return `<div class="peq ${r.irregular ? 'erro-txt' : ''}">Conferência: ${[n('conferidas', r.conferidas), n('ausentes', r.ausentes), n('anilha divergente', r.anilha),
+    n('espécie/sexo divergente', r.divergente), n('sem registro', r.extras), n('não conferidas', r.naoConferidas)].filter(Boolean).join(' · ')}</div>`;
+}
+// Texto do relatório de uma vistoria: identificação, conferência, constatações com base legal e providências já tomadas.
+function textoRelatorioVistoria(c, e, v) {
+  const graves = (v.graves || []).map(g => `Infração grave: ${GRAVES.find(x => x[0] === g)[1]} (IN SEMA 04/2022, art. 62, §2º, ${g})`);
+  const constatacoes = e.itens.filter(i => (v.irregular || []).includes(i.id) || (i.aberto && i.tipo === 'nc' && !/^(suspender|fachada):/.test(i.id)))
+    .map(i => ({ titulo: i.titulo, texto: i.texto, base: i.base }));
+  const conf = Normas.resumoConferencia(avesAtivas(c), v);
+  if (conf.ausentes.length) constatacoes.push({ titulo: 'Aves do plantel ausentes no local', texto: conf.ausentes.join('; ') + '.', base: 'IN SEMA 04/2022, arts. 35, §3º, e 40, I' });
+  if (conf.anilha.length) constatacoes.push({ titulo: 'Anilha divergente, violada ou adulterada', texto: conf.anilha.join('; ') + '.', base: 'IN SEMA 04/2022, art. 40, II' });
+  if (conf.divergente.length) constatacoes.push({ titulo: 'Espécie ou sexo divergente do registro no SISPASS', texto: conf.divergente.join('; ') + '.', base: '' });
+  if (conf.extras.length) constatacoes.push({ titulo: 'Aves sem registro no plantel do SISPASS', texto: conf.extras.join('; ') + '.', base: 'IN SEMA 04/2022, art. 62, §2º, III' });
+  const providencias = Object.entries(c.acoes || {}).filter(([k, a]) => a.data >= v.data)
+    .map(([k, a]) => { const i = e.itens.find(x => x.id === k); return `${k.startsWith('suspender:') ? 'Licença suspensa no SISPASS' : (i?.titulo || k)} em ${Normas.fmt(new Date(a.data + 'T12:00'))}${a.obs ? ': ' + a.obs : ''}`; });
+  return Normas.textoRelatorio({
+    criador: { nome: c.nome, cpf: fmtCpf(c.cpf), registro: c.registro, endereco: [c.endereco, c.bairro, c.cidade].filter(Boolean).join(', ') },
+    vistoria: v, resultado: RESULTADO[v.resultado] || v.resultado,
+    ctf: e.ctf?.status || '', licenca: e.lic ? `Licença ${e.lic.periodo}: ${e.lic.status}${e.lic.numero ? ' (nº ' + e.lic.numero + ')' : ''}` : '',
+    conf: (v.aves || v.extras?.length) ? conf : null, graves, constatacoes, providencias, assinatura: db.cfg.assinatura || '',
+  });
+}
+function imprimirTexto(t) {
+  const d = document.createElement('div');
+  d.id = 'area-print'; d.textContent = t;
+  document.body.append(d); document.body.classList.add('imprimindo');
+  const fim = () => { d.remove(); document.body.classList.remove('imprimindo'); removeEventListener('afterprint', fim); };
+  addEventListener('afterprint', fim);
+  window.print();
 }
 
 const COLS_PLANTEL = ['Situação', 'Nome Popular', 'Espécie', 'Sexo', 'Nascimento', 'Código anilha', 'Diâmetro anilha', 'Marcação', 'ULTIMA_OPERACAO', 'DATA_OPERACAO'];
@@ -637,8 +691,12 @@ function telaFicha(cpf) {
       ${v.maneja === 'outro' ? `<div class="peq">Aves manejadas por: ${esc(v.manejaNome || 'outra pessoa')}</div>` : v.maneja === 'titular' ? '<div class="peq">Titular maneja as aves</div>' : ''}
       ${v.graves?.length ? `<div class="peq">Infração grave: art. 62, §2º, ${v.graves.join(', ')}</div>` : ''}
       ${v.irregular?.length ? `<div class="peq">${v.irregular.length} item(ns) constatado(s) irregular(es)</div>` : ''}
+      ${resumoConfHtml(c, v)}
       ${v.obs ? `<div class="peq" style="white-space:pre-wrap">${esc(v.obs)}</div><button class="sec b-copiar-txt" type="button" data-txt="${esc(v.obs)}">Copiar observação</button>` : ''}
-      <button class="sec b-del-vist" type="button" data-id="${esc(v.id)}">Excluir</button></div>`).join(''));
+      <div class="linha"><button class="sec b-rel" type="button" data-id="${esc(v.id)}">Relatório</button>
+      <button class="sec b-del-vist" type="button" data-id="${esc(v.id)}">Excluir</button></div>
+      <div class="rel-caixa" id="rel-${esc(v.id)}" hidden><textarea rows="16"></textarea>
+        <div class="linha"><button class="b-rel-copiar" type="button">Copiar</button><button class="sec b-rel-imprimir" type="button">Imprimir / PDF</button></div></div></div>`).join(''));
   const transf = r ? (c.rel.secoes['Transferências Recebidas'] || []).length + (c.rel.secoes['Transferências Solicitadas'] || []).length : '';
   // Abas da coluna direita: [chave, rótulo, contador, conteúdo]
   const ABAS = [
@@ -719,16 +777,35 @@ function telaFicha(cpf) {
     catch { $('#v-obs').select(); $('#v-obs-copiar').textContent = 'Use Ctrl+C'; }
   };
   ligarItens(recarregar);
+  const contarConf = () => { const s = [...document.querySelectorAll('.v-ave')]; if ($('#v-conf-cont')) $('#v-conf-cont').textContent = `${s.filter(x => x.value).length} de ${s.length} conferidas`; };
+  for (const s of document.querySelectorAll('.v-ave')) s.onchange = contarConf;
+  if ($('#v-todas')) $('#v-todas').onclick = () => { for (const s of document.querySelectorAll('.v-ave')) if (!s.value) s.value = 'ok'; contarConf(); };
+  contarConf();
+  for (const b of document.querySelectorAll('.b-rel')) b.onclick = () => {
+    const caixa = $(`#rel-${b.dataset.id}`);
+    if (!caixa.hidden) { caixa.hidden = true; return; }
+    caixa.querySelector('textarea').value = textoRelatorioVistoria(c, e, e.vistorias.find(v => v.id === b.dataset.id));
+    caixa.hidden = false;
+  };
+  for (const b of document.querySelectorAll('.b-rel-copiar')) b.onclick = async () => {
+    const t = b.closest('.rel-caixa').querySelector('textarea');
+    try { await navigator.clipboard.writeText(t.value); b.textContent = 'Copiado'; } catch { t.select(); b.textContent = 'Use Ctrl+C'; }
+  };
+  for (const b of document.querySelectorAll('.b-rel-imprimir')) b.onclick = () => imprimirTexto(b.closest('.rel-caixa').querySelector('textarea').value);
   $('#copiar').onclick = async () => {
     try { await navigator.clipboard.writeText(c.cpf); $('#copiar').textContent = 'CPF copiado'; } catch { $('#copiar').textContent = c.cpf; }
   };
   $('#sexo').onchange = async ev => { c.sexo = ev.target.value || undefined; sujos.add(c.cpf); await salvar(); recarregar(); };
   $('#b-vistoria').onclick = async () => {
-    const v = { id: Date.now().toString(36), data: $('#v-data').value || new Date().toISOString().slice(0, 10), resultado: $('#v-res').value,
+    const v = { id: Date.now().toString(36), data: $('#v-data').value || hojeIso(), resultado: $('#v-res').value,
       maneja: $('#v-maneja').value, manejaNome: $('#v-maneja-nome').value.trim(), endereco: $('#v-end').value.trim(), obs: $('#v-obs').value.trim(),
       ok: [], irregular: [], graves: [...document.querySelectorAll('.v-grave:checked')].map(x => x.value) };
     for (const s of document.querySelectorAll('.v-item')) if (s.value) v[s.value].push(s.dataset.id);
-    if (v.resultado === 'regular' && (v.irregular.length || v.graves.length)) v.resultado = 'irregular';
+    v.aves = {};
+    for (const s of document.querySelectorAll('.v-ave')) if (s.value) v.aves[s.dataset.k] = s.value;
+    v.extras = lerExtras($('#v-extras').value);
+    const conf = Normas.resumoConferencia(avesAtivas(c), v);
+    if (v.resultado === 'regular' && (v.irregular.length || v.graves.length || conf.irregular)) v.resultado = 'irregular';
     if (v.endereco && v.endereco !== c.endereco) c.endereco = v.endereco;
     (c.vistorias ||= []).push(v);
     sujos.add(c.cpf);
@@ -1007,7 +1084,7 @@ function exportarPlanilha() {
   aba('Pendências', todos.flatMap(c => estado(c).abertos.map(i => ({ CPF: fmtCpf(c.cpf), Criador: c.nome, Cidade: c.cidade, Destino: i.destino,
     Tipo: i.tipo, Item: i.titulo, Detalhe: i.texto, Base: i.base, 'Providência': i.providencia, 'Data do fato': i.data }))));
   aba('_relatorios', relatorios);
-  XLSX.writeFile(wb, `fiscal-passeriformes-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  XLSX.writeFile(wb, `fiscal-passeriformes-${hojeIso()}.xlsx`);
   return `Planilha exportada: ${todos.length} criadores, ${comRel.length} com relatório.`;
 }
 
@@ -1145,7 +1222,7 @@ function telaDados() {
   $('#b-exp').onclick = async () => {
     const blob = new Blob([JSON.stringify(await cifrar(chave, salt, db))], { type: 'application/json' });
     const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob),
-      download: `backup-passeriformes-${new Date().toISOString().slice(0, 10)}.json` });
+      download: `backup-passeriformes-${hojeIso()}.json` });
     a.click();
     URL.revokeObjectURL(a.href);
     msg('#m-bak', 'Backup exportado.');

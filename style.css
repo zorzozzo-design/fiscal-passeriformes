@@ -122,3 +122,11 @@ main:has(.ficha) { max-width: 1320px; }
   .abas { top: var(--topo-h, 56px); }
 }
 .ficha > * { min-width: 0; }
+.erro-txt { color: var(--alerta); }
+.rel-caixa { margin-top: 8px; display: grid; gap: 6px; }
+.rel-caixa textarea { font: .85rem/1.4 ui-monospace, Menlo, Consolas, monospace; }
+#area-print { display: none; }
+@media print {
+  body.imprimindo > :not(#area-print) { display: none !important; }
+  body.imprimindo #area-print { display: block; white-space: pre-wrap; font: 11pt/1.45 system-ui, sans-serif; color: #000; }
+}
