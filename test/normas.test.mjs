@@ -238,3 +238,23 @@ test('detecta CTF cancelado por status ou por texto', () => {
   assert.equal(N.ctfCancelado('', ['sem observações', '', null]), false);
   assert.equal(N.ctfCancelado('não encontrado', ['plantel ok']), false);
 });
+
+// ---------- ficha básica para impressão ----------
+test('HTML da ficha de impressão', () => {
+  const h = N.fichaImpressaoHTML({
+    criador: { nome: 'Fulano de Tal', cpf: '111.444.777-35', registro: '6101289', enderecoCadastrado: 'Rua A, 10', enderecoAtual: 'Rua Nova, 20', bairro: 'Centro', cidade: 'Tramandaí' },
+    ctf: 'ativo', licenca: { periodo: '2026/2027', status: 'sem licença', numero: '', validade: '31/07/2027' },
+    aves: [
+      { situacao: 'Ativa', popular: 'Curió', especie: 'Sporophila angolensis', sexo: 'M', nascimento: '01/01/2020', anilha: 'IBAMA OA 3,5 159443', diametro: '3,5', ameaca: 'RS EN' },
+      { situacao: 'Ativa', popular: 'Canário', especie: 'Sicalis flaveola', sexo: 'F', nascimento: '', anilha: 'IBAMA OA 2,6 558730', diametro: '2,6', ameaca: '' },
+    ],
+    impressoEm: '24/10/2026',
+  });
+  for (const x of ['FICHA DO CRIADOR', 'Fulano de Tal', '111.444.777-35', '6101289', 'Rua A, 10', 'Endereço atual', 'Rua Nova, 20',
+    'CTF', 'ativo', 'Licença 2026/2027', 'sem licença', '2 ave(s) ativa(s)', 'Conferido', 'Curió', 'Sporophila angolensis', 'IBAMA OA 3,5 159443', 'RS EN', '24/10/2026'])
+    assert.ok(h.includes(x), 'faltou: ' + x);
+  assert.ok(!h.includes('undefined'));
+  // escapa HTML
+  const h2 = N.fichaImpressaoHTML({ criador: { nome: 'A & <b>', cpf: '1' }, aves: [] });
+  assert.ok(h2.includes('A &amp; &lt;b&gt;'));
+});

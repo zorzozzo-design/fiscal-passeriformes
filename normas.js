@@ -463,7 +463,33 @@ function ctfCancelado(status, textos = []) {
   return textos.some(t => /ctf[^.]{0,12}cancelad|cancelad[^.]{0,12}ctf/i.test(String(t ?? '')));
 }
 
+// Ficha básica do criador para imprimir/salvar em PDF antes de sair a campo.
+function fichaImpressaoHTML({ criador: c = {}, ctf = '', licenca = null, aves = [], impressoEm = '' }) {
+  const esc = t => String(t ?? '').replace(/[&<>]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]));
+  const L = [];
+  L.push(`<h2>FICHA DO CRIADOR</h2>`);
+  L.push(`<p class="nm">${esc(c.nome)}</p>`);
+  const linha = (rot, val) => val ? `<div><b>${rot}:</b> ${esc(val)}</div>` : '';
+  L.push('<div class="dados">');
+  L.push(`<div><b>CPF</b> ${esc(c.cpf)}</div>`);
+  if (c.registro) L.push(`<div><b>Registro</b> ${esc(c.registro)}</div>`);
+  if (c.cidade || c.bairro) L.push(`<div><b>Cidade/Bairro</b> ${esc([c.cidade, c.bairro].filter(Boolean).join(' / '))}</div>`);
+  if (ctf) L.push(`<div><b>CTF:</b> ${esc(ctf)}</div>`);
+  if (licenca) L.push(`<div><b>Licença ${esc(licenca.periodo)}:</b> ${esc(licenca.status)}${licenca.numero ? ' (nº ' + esc(licenca.numero) + ')' : ''}${licenca.validade ? ', validade ' + esc(licenca.validade) : ''}</div>`);
+  L.push('</div>');
+  if (c.enderecoCadastrado) L.push(`<p><b>Endereço:</b> ${esc(c.enderecoCadastrado)}</p>`);
+  if (c.enderecoAtual) L.push(`<p><b>Endereço atual:</b> ${esc(c.enderecoAtual)}</p>`);
+  L.push(`<p class="pl"><b>Plantel: ${aves.length} ave(s) ativa(s)</b></p>`);
+  if (aves.length) {
+    L.push('<table><thead><tr><th>#</th><th>Nome / Espécie</th><th>Sexo</th><th>Nascimento</th><th>Anilha</th><th>Ø</th><th>Ameaça</th><th>Conferido</th></tr></thead><tbody>');
+    aves.forEach((a, i) => L.push(`<tr><td>${i + 1}</td><td>${esc(a.popular)}${a.especie ? '<br><i>' + esc(a.especie) + '</i>' : ''}</td><td>${esc(a.sexo)}</td><td>${esc(a.nascimento)}</td><td>${esc(a.anilha)}</td><td>${esc(a.diametro)}</td><td>${esc(a.ameaca)}</td><td></td></tr>`));
+    L.push('</tbody></table>');
+  }
+  L.push(`<p class="rodape">Impresso em ${esc(impressoEm)}. Fonte: SISPASS/IBAMA. Documento de apoio à fiscalização.</p>`);
+  return L.join('\n');
+}
+
 globalThis.Normas = { especie, ameaca, periodo, situacaoCTF, situacaoLicenca, ameacadasDoPlantel, verificar, textoSuspensao, fmt, canon, CONF, resumoConferencia, textoRelatorio,
   identificarEspecie, opcoesEspecies, resumoAbordagem, textoAbordagem, ESTADO_AVE, DESTINO_AVE, DOCUMENTACAO, MULTA, reais,
-  somarDias, situacaoPrazo, ics, textoNotificacao, ctfCancelado };
+  somarDias, situacaoPrazo, ics, textoNotificacao, ctfCancelado, fichaImpressaoHTML };
 })();

@@ -688,13 +688,29 @@ function textoRelatorioVistoria(c, e, v) {
     conf: (v.aves || v.extras?.length) ? conf : null, graves, constatacoes, providencias, assinatura: db.cfg.assinatura || '',
   });
 }
-function imprimirTexto(t) {
+function imprimirTexto(t) { imprimirArea(d => d.textContent = t); }
+function imprimirHTML(html) { imprimirArea(d => { d.className = 'doc-html'; d.innerHTML = html; }); }
+function imprimirArea(preencher) {
   const d = document.createElement('div');
-  d.id = 'area-print'; d.textContent = t;
+  d.id = 'area-print'; preencher(d);
   document.body.append(d); document.body.classList.add('imprimindo');
   const fim = () => { d.remove(); document.body.classList.remove('imprimindo'); removeEventListener('afterprint', fim); };
   addEventListener('afterprint', fim);
   window.print();
+}
+// Monta e imprime a ficha básica do criador (dados, situação e plantel ativo).
+function imprimirFicha(c, e) {
+  const r = e.r, ameacaDe = {};
+  for (const a of e.ameacadas) ameacaDe[a.anilha] = [a.rs && 'RS ' + a.rs, a.br && 'BR ' + a.br].filter(Boolean).join(' · ');
+  const aves = (c.rel?.secoes.Plantel || []).filter(a => /^ativ/i.test(a['Situação'] || '')).map(a => ({
+    situacao: a['Situação'], popular: a['Nome Popular'], especie: a['Espécie'], sexo: a.Sexo, nascimento: a.Nascimento,
+    anilha: a['Código anilha'], diametro: a['Diâmetro anilha'], ameaca: ameacaDe[a['Código anilha']] || '' }));
+  imprimirHTML(Normas.fichaImpressaoHTML({
+    criador: { nome: c.nome, cpf: fmtCpf(c.cpf), registro: c.registro, enderecoCadastrado: [c.endereco, c.bairro, c.cidade].filter(Boolean).join(', '),
+      enderecoAtual: c.enderecoAtual, bairro: c.bairro, cidade: c.cidade },
+    ctf: e.ctf?.status || '', licenca: e.lic ? { periodo: e.lic.periodo, status: e.lic.status, numero: e.lic.numero, validade: e.lic.validade } : null,
+    aves, impressoEm: Normas.fmt(new Date()),
+  }));
 }
 
 const COLS_PLANTEL = ['Situação', 'Nome Popular', 'Espécie', 'Sexo', 'Nascimento', 'Código anilha', 'Diâmetro anilha', 'Marcação', 'ULTIMA_OPERACAO', 'DATA_OPERACAO'];
@@ -799,6 +815,7 @@ function telaFicha(cpf) {
       <div class="linha">
         <a class="btn sec" target="_blank" rel="noopener noreferrer" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(end)}">Abrir no mapa</a>
         <button class="sec" id="copiar" type="button">Copiar CPF</button>
+        <button class="sec" id="imprimir-ficha" type="button">Imprimir ficha (PDF)</button>
       </div></div>
     </div>
 
@@ -850,6 +867,7 @@ function telaFicha(cpf) {
   $('#copiar').onclick = async () => {
     try { await navigator.clipboard.writeText(c.cpf); $('#copiar').textContent = 'CPF copiado'; } catch { $('#copiar').textContent = c.cpf; }
   };
+  $('#imprimir-ficha').onclick = () => imprimirFicha(c, e);
   $('#sexo').onchange = async ev => { c.sexo = ev.target.value || undefined; sujos.add(c.cpf); await salvar(); recarregar(); };
   if ($('#end-atual')) $('#end-atual').onchange = async ev => {
     const novo = ev.target.value.trim();
