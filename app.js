@@ -935,11 +935,27 @@ function ligarAgenda() {
   };
 }
 // Menu: quantidade de prazos vencidos ao lado de "Pendências".
+// Qual item do menu corresponde ao hash atual (ficha e sub-rotas contam para a seção de origem).
+function secaoAtual(h) {
+  if (h === '#/dados') return '#/dados';
+  if (h === '#/pendencias') return '#/pendencias';
+  if (h === '#/painel') return '#/painel';
+  if (h === '#/graficos' || h.startsWith('#/grafo/')) return '#/graficos';
+  if (h === '#/abordagens' || h.startsWith('#/ab/')) return '#/abordagens';
+  if (h === '#/' || h.startsWith('#/?') || h.startsWith('#/c/') || h.startsWith('#/anilha/')) return '#/';
+  return '';
+}
 function marcarNav() {
   const a = $('#nav a[href="#/pendencias"]');
   if (!a || !db) return;
   const n = prazosAbertos().filter(p => p.sit.vencido).length;
   a.innerHTML = 'Pendências' + (n ? ` <span class="tag alerta" title="prazos vencidos">${n}</span>` : '');
+  const atual = secaoAtual(location.hash);
+  for (const l of document.querySelectorAll('#nav a')) {
+    const ativo = l.getAttribute('href') === atual;
+    l.classList.toggle('ativo', ativo);
+    if (ativo) l.setAttribute('aria-current', 'page'); else l.removeAttribute('aria-current');
+  }
 }
 
 // ---------- pendências (fila de trabalho) ----------
