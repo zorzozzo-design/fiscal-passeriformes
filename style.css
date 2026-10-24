@@ -146,3 +146,19 @@ nav a { white-space: nowrap; }
 .lista-topo { flex: 0 0 auto; }
 .lista-topo #cont { margin: 6px 2px 10px; }
 .tela-lista #lista { flex: 1 1 auto; overflow-y: auto; margin: 0; -webkit-overflow-scrolling: touch; }
+
+/* Gráficos e grafo */
+.filtros-graf { gap: 8px; align-items: flex-start; }
+.ms { position: relative; border: 1px solid var(--borda); border-radius: 8px; background: var(--bg); padding: 0; }
+.ms > summary { padding: 9px 12px; white-space: nowrap; }
+.ms .ms-op { position: absolute; z-index: 6; margin-top: 4px; background: var(--card); border: 1px solid var(--borda); border-radius: 8px; padding: 8px; min-width: 200px; max-height: 320px; overflow-y: auto; box-shadow: 0 6px 16px rgba(0,0,0,.12); }
+.ms .chk { font-weight: 400; margin: 2px 0; }
+.graf-grade { display: grid; grid-template-columns: 1fr; gap: 14px; }
+@media (min-width: 720px) { .graf-grade { grid-template-columns: 1fr 1fr; } }
+.graf-card { margin: 0; }
+.graf-box { position: relative; height: 260px; }
+.grafo-box { height: 60vh; min-height: 320px; border: 1px solid var(--borda); border-radius: 8px; background: var(--bg); }
+.aviso-box { background: var(--aviso-bg); color: var(--aviso); border-radius: 8px; padding: 8px 10px; margin: 6px 0; }
+.end-atual { border: 0; padding: 0; margin: 4px 0 0; }
+.end-atual > summary { font-weight: 600; }
+.end-atual input { margin-top: 6px; }

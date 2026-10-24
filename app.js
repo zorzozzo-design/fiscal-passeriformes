@@ -633,7 +633,7 @@ function formVistoria(c, e) {
       <div><label for="v-maneja">Quem maneja as aves</label><select id="v-maneja"><option value="titular">O titular</option><option value="outro">Outra pessoa</option><option value="">Não verificado</option></select></div>
       <div><label for="v-maneja-nome">Se outra pessoa: nome e vínculo</label><input id="v-maneja-nome" placeholder="Ex.: marido, João da Silva"></div>
     </div>
-    <label for="v-end">Endereço conferido</label><input id="v-end" value="${esc(c.endereco)}">
+    <label for="v-end">Endereço conferido</label><input id="v-end" value="${esc(c.enderecoAtual || c.endereco)}">
     ${formConferencia(c)}
     ${campo.length ? `<h2 style="margin-top:12px">Itens a conferir (${campo.length})</h2><p class="muted peq">Já marcados como verificados. Mude só o que constatou irregular ou não conferiu.</p>
       ${campo.map(i => `<div class="conf"><b>${esc(i.titulo)}</b><div class="peq muted">${esc(i.texto)}</div>
@@ -707,7 +707,7 @@ function telaFicha(cpf) {
   if (!c) { app.innerHTML = '<div class="card">Criador não encontrado. <a href="#/">Voltar</a></div>'; return; }
   idxNomes = indiceNomes();
   const e = estado(c), r = e.r;
-  const end = [c.endereco, c.bairro, c.cidade, 'RS'].filter(Boolean).join(', ');
+  const end = c.enderecoAtual ? c.enderecoAtual + ', RS' : [c.endereco, c.bairro, c.cidade, 'RS'].filter(Boolean).join(', ');
   const outras = c.rel ? Object.entries(c.rel.secoes).filter(([t]) => !PRINCIPAIS.includes(t)) : [];
   const ameacaDe = {};
   for (const a of e.ameacadas) ameacaDe[a.anilha] = [a.rs && 'RS ' + a.rs, a.br && 'BR ' + a.br].filter(Boolean).join(' · ');
@@ -752,6 +752,7 @@ function telaFicha(cpf) {
         'Nome do Doador': v.nome, 'Recebeu dele': v.recebidas, 'Enviou para ele': v.enviadas, 'Última': v.ultima }))).replace('<th>Nome do Doador</th>', '<th>Criador</th>'))
       + card('Transferências recebidas', tabela(c.rel.secoes['Transferências Recebidas']))
       + card('Transferências solicitadas (enviadas)', tabela(c.rel.secoes['Transferências Solicitadas']))],
+    ['vinc', 'Vínculos', r ? vinculos(c.rel).length : '', cardGrafo(c.cpf)],
     ['ocorr', 'Ocorrências', r ? r.ocorrencias.length : '', !r ? semRel : card('Fugas, roubos/furtos e óbitos', tabela(r.ocorrencias))
       + card('Óbitos e idade da ave', tabelaObitos(obitosDaBase().filter(o => o.cpf === c.cpf)))],
     ['hist', 'Histórico', r ? (c.rel.secoes['Histórico de Operações'] || []).length : '', !r ? semRel : card('Histórico de operações', tabela(c.rel.secoes['Histórico de Operações']))
@@ -781,8 +782,12 @@ function telaFicha(cpf) {
           <select id="sexo"><option value="">Estimado: ${e.sexo.valor === 'F' ? 'feminino' : 'masculino'}</option>
             <option value="F" ${c.sexo === 'F' ? 'selected' : ''}>Feminino (confirmado)</option><option value="M" ${c.sexo === 'M' ? 'selected' : ''}>Masculino (confirmado)</option></select></div>
       </div>
-      <p><span class="muted peq">Endereço</span><br>${esc(c.endereco)}</p>
+      <p><span class="muted peq">Endereço${c.enderecoAtual ? ' cadastrado' : ''}</span><br>${esc(c.endereco)}</p>
       ${c.rel && norm(c.rel.criador.endereco) !== norm(c.endereco) ? `<p class="peq"><span class="muted">Endereço no SISPASS:</span> ${esc(c.rel.criador.endereco)}, ${esc(c.rel.criador.bairro)}, ${esc(c.rel.criador.municipio)}</p>` : ''}
+      ${c.enderecoAtual ? `<p class="aviso-box"><b>Endereço atual:</b> ${esc(c.enderecoAtual)}</p>` : ''}
+      <details class="end-atual" ${c.enderecoAtual ? '' : ''}><summary class="peq muted">${c.enderecoAtual ? 'Editar endereço atual' : 'Informar endereço atual (mudança)'}</summary>
+        <input id="end-atual" value="${esc(c.enderecoAtual || '')}" placeholder="Rua, nº, bairro, cidade">
+        <span id="end-atual-m" class="peq muted"></span></details>
       ${c.rel?.criador.email ? `<p class="peq"><span class="muted">E-mail no SISPASS:</span> ${esc(c.rel.criador.email)}</p>` : ''}
       <div class="linha">
         <a class="btn sec" target="_blank" rel="noopener noreferrer" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(end)}">Abrir no mapa</a>
@@ -805,6 +810,8 @@ function telaFicha(cpf) {
   ligarAbas();
   ligarFixar();
   ligarMensagens(c, e);
+  const bVinc = $('.aba-b[data-aba="vinc"]'); // o grafo só monta com a aba visível (precisa de tamanho)
+  if (bVinc) { bVinc.addEventListener('click', () => ligarGrafoFicha(c.cpf)); if (!$('.aba[data-aba="vinc"]').hidden) ligarGrafoFicha(c.cpf); }
   const obsLink = () => { $('#v-obs-whats').href = 'https://wa.me/?text=' + encodeURIComponent($('#v-obs').value); };
   const acrescentar = t => { const o = $('#v-obs'); if (!o.value.includes(t)) o.value = (o.value.trim() ? o.value.trim() + ' ' : '') + t; obsLink(); };
   $('#v-obs').oninput = obsLink;
@@ -837,6 +844,12 @@ function telaFicha(cpf) {
     try { await navigator.clipboard.writeText(c.cpf); $('#copiar').textContent = 'CPF copiado'; } catch { $('#copiar').textContent = c.cpf; }
   };
   $('#sexo').onchange = async ev => { c.sexo = ev.target.value || undefined; sujos.add(c.cpf); await salvar(); recarregar(); };
+  if ($('#end-atual')) $('#end-atual').onchange = async ev => {
+    const novo = ev.target.value.trim();
+    if (novo === (c.enderecoAtual || '')) return;
+    c.enderecoAtual = novo || undefined; sujos.add(c.cpf); await salvar();
+    const y = window.scrollY; telaFicha(cpf); window.scrollTo(0, y);
+  };
   $('#b-vistoria').onclick = async () => {
     const v = { id: Date.now().toString(36), data: $('#v-data').value || hojeIso(), resultado: $('#v-res').value,
       maneja: $('#v-maneja').value, manejaNome: $('#v-maneja-nome').value.trim(), endereco: $('#v-end').value.trim(), obs: $('#v-obs').value.trim(),
@@ -1143,12 +1156,12 @@ function exportarPlanilha() {
     const e = estado(c), r = e.r;
     return {
       CPF: fmtCpf(c.cpf), Registro: String(c.registro), Nome: c.nome, Sexo: (e.sexo.valor === 'F' ? 'Feminino' : 'Masculino') + (e.sexo.estimado ? ' (estimado)' : ''),
-      Cidade: c.cidade, Bairro: c.bairro, 'Endereço': c.endereco, 'E-mail SISPASS': c.rel?.criador.email || '',
+      Cidade: c.cidade, Bairro: c.bairro, 'Endereço': c.endereco, 'Endereço atual': c.enderecoAtual || '', 'E-mail SISPASS': c.rel?.criador.email || '',
       CTF: e.ctf?.status || '', [`Licença ${Normas.periodo(new Date()).rotulo}`]: e.lic?.status || '', 'Aves ameaçadas': e.ameacadas.length,
       'Última vistoria': e.ultima?.data || '', Resultado: e.ultima ? RESULTADO[e.ultima.resultado] : '', 'Fiscalizado no período': e.fiscalizado ? 'Sim' : 'Não',
       'Pendências abertas': e.abertos.length, 'Relatório importado em': c.rel?.importadoEm || '', 'Aves ativas': r ? r.ativas : '', 'Total de aves': r ? r.total : '',
       'Fugas/roubos/óbitos': r ? r.ocorrencias.length : '', 'Última operação': r?.ultimaOperacao || '',
-      _estado: JSON.stringify({ sexo: c.sexo, vistorias: c.vistorias, acoes: c.acoes, notas: c.notas }),
+      _estado: JSON.stringify({ sexo: c.sexo, enderecoAtual: c.enderecoAtual, vistorias: c.vistorias, acoes: c.acoes, notas: c.notas }),
     };
   });
   const comRel = todos.filter(c => c.rel);
@@ -1224,6 +1237,7 @@ function mesclar(outro) {
     for (const v of b.vistorias || []) if (!ids.has(v.id)) (a.vistorias ||= []).push(v);
     for (const [k, v] of Object.entries(b.acoes || {})) if (!a.acoes?.[k] || v.data > a.acoes[k].data) (a.acoes ||= {})[k] = v;
     if (b.sexo && !a.sexo) a.sexo = b.sexo;
+    if (b.enderecoAtual && !a.enderecoAtual) a.enderecoAtual = b.enderecoAtual;
     if (b.notas && !a.notas) a.notas = b.notas;
     if (JSON.stringify(a) !== antes) { sujos.add(cpf); n++; }
   }
@@ -1365,6 +1379,8 @@ function rotear() {
   if (h === '#/pendencias') return telaPendencias();
   if (h === '#/vinculos') return telaVinculos();
   if (h === '#/painel') return telaPainel();
+  if (h === '#/graficos') return telaGraficos();
+  if (h.startsWith('#/grafo/')) return telaGrafo(h.slice(8));
   if (h === '#/abordagens') return telaAbordagens();
   if (h.startsWith('#/ab/')) return telaAbordagem(h.slice(5));
   if (h.startsWith('#/?')) { // atalho vindo do painel: #/?f=filtro&cidade=X
