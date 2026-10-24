@@ -47,7 +47,7 @@ const primeiroNome = nome => String(nome ?? '').trim().split(/\s+/)[0] || '?';
 function montarGrafo(pares, centralCpf) {
   const idDe = p => p.cpf || 'n:' + normNome(p.nome);
   const nodes = new Map(), edges = new Map();
-  const addNode = p => { const id = idDe(p); if (!nodes.has(id)) nodes.set(id, { id, label: primeiroNome(p.nome), nome: p.nome, temFicha: !!p.cpf, central: p.cpf === centralCpf && !!p.cpf }); };
+  const addNode = p => { const id = idDe(p); if (!nodes.has(id)) nodes.set(id, { id, label: primeiroNome(p.nome), nome: p.nome, registro: p.registro || '', temFicha: !!p.cpf, central: p.cpf === centralCpf && !!p.cpf }); };
   for (const par of pares) {
     addNode(par.de); addNode(par.para);
     const s = idDe(par.de), t = idDe(par.para), k = s + '>' + t;
@@ -153,10 +153,10 @@ function desenhar(id, tipo, dados) {
 function paresDe(cpf, idx) {
   const c = db.criadores[cpf];
   if (!c?.rel) return [];
-  const central = { cpf, nome: c.nome }, out = [];
+  const central = { cpf, nome: c.nome, registro: c.registro }, out = [];
   for (const v of vinculos(c.rel)) {
     const achado = (idx[normNome(v.nome)] || []).find(x => x.cpf !== cpf) || null;
-    const outro = { cpf: achado?.cpf || '', nome: achado?.nome || v.nome };
+    const outro = { cpf: achado?.cpf || '', nome: achado?.nome || v.nome, registro: achado?.registro || '' };
     if (v.recebidas) out.push({ de: outro, para: central, recebidas: v.recebidas, enviadas: 0 });
     if (v.enviadas) out.push({ de: central, para: outro, recebidas: 0, enviadas: v.enviadas });
   }
@@ -180,14 +180,15 @@ function montarCy(containerId, cpf, expandir) {
     container: el, elements: [...g.nodes.map(n => ({ data: n })), ...g.edges.map(e => ({ data: e }))],
     style: [
       { selector: 'node', style: { 'background-color': n => n.data('central') ? '#b42318' : n.data('temFicha') ? '#0b5e3a' : '#9aa8a1',
-        label: 'data(label)', color: escuro ? '#e6ece9' : '#16211c', 'font-size': 11, 'text-valign': 'bottom', 'text-margin-y': 3, width: n => n.data('central') ? 26 : 18, height: n => n.data('central') ? 26 : 18 } },
+        label: n => `${n.data('label')}\n${n.data('registro') ? 'SISPASS ' + n.data('registro') : 'fora da base'}`, 'text-wrap': 'wrap', 'line-height': 1.1,
+        color: escuro ? '#e6ece9' : '#16211c', 'font-size': 7, 'text-valign': 'bottom', 'text-margin-y': 2, width: n => n.data('central') ? 24 : 16, height: n => n.data('central') ? 24 : 16 } },
       { selector: 'edge', style: { width: 1.5, 'line-color': escuro ? '#3a4a43' : '#b9c4bd', 'target-arrow-color': escuro ? '#3a4a43' : '#b9c4bd',
-        'target-arrow-shape': 'triangle', 'curve-style': 'bezier', label: 'data(label)', 'font-size': 9, color: escuro ? '#9aa8a1' : '#5d6b64', 'text-background-color': escuro ? '#18201c' : '#fff', 'text-background-opacity': 0.8, 'text-background-padding': 2 } },
+        'target-arrow-shape': 'triangle', 'curve-style': 'bezier', label: 'data(label)', 'font-size': 7, color: escuro ? '#9aa8a1' : '#5d6b64', 'text-background-color': escuro ? '#18201c' : '#fff', 'text-background-opacity': 0.8, 'text-background-padding': 2 } },
     ],
     layout: { name: 'concentric', concentric: n => n.data('central') ? 10 : 1, levelWidth: () => 1, minNodeSpacing: 40, padding: 10 },
   });
   globalThis.cyFiscal = cyInst;
-  cyInst.on('tap', 'node', ev => { const d = ev.target.data(); if (d.temFicha) location.hash = '#/c/' + d.id; });
+  cyInst.on('tap', 'node', ev => { const d = ev.target.data(); location.hash = d.temFicha ? '#/c/' + d.id : '#/?q=' + encodeURIComponent(d.nome); });
 }
 
 function ligarGrafoFicha(cpf) {
@@ -202,7 +203,7 @@ function cardGrafo(cpf) {
     ${!tem ? '<p class="muted peq">Sem transferências confirmadas no relatório.</p>' : `
     <label class="chk"><input type="checkbox" id="grafo-exp"> Expandir mais um nível</label>
     <div id="grafo-ficha" class="grafo-box"></div>
-    <p class="muted peq">Vermelho: criador atual. Verde: criador na base (clique para abrir). Cinza: fora da base. Seta: sentido da transferência.</p>`}</div>`;
+    <p class="muted peq">Vermelho: criador atual. Verde: criador na base (clique abre a ficha). Cinza: fora da base (clique busca pelo nome para você conferir e importar). O número abaixo do nome é o cadastro no SISPASS, quando conhecido. Seta: sentido da transferência.</p>`}</div>`;
 }
 
 function telaGrafo(cpf) {

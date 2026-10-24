@@ -70,18 +70,20 @@ test('primeiro nome', () => {
 
 test('monta nós e arestas, com e sem ficha', () => {
   const pares = [
-    { de: { cpf: '111', nome: 'Ana Maria' }, para: { cpf: '222', nome: 'Bruno Costa' }, recebidas: 0, enviadas: 2 },
-    { de: { cpf: '333', nome: 'Carlos Dias' }, para: { cpf: '111', nome: 'Ana Maria' }, recebidas: 0, enviadas: 1 },
-    { de: { cpf: '', nome: 'Externo Silva' }, para: { cpf: '111', nome: 'Ana Maria' }, recebidas: 0, enviadas: 1 },
+    { de: { cpf: '111', nome: 'Ana Maria', registro: '900' }, para: { cpf: '222', nome: 'Bruno Costa', registro: '901' }, recebidas: 0, enviadas: 2 },
+    { de: { cpf: '333', nome: 'Carlos Dias', registro: '902' }, para: { cpf: '111', nome: 'Ana Maria', registro: '900' }, recebidas: 0, enviadas: 1 },
+    { de: { cpf: '', nome: 'Externo Silva' }, para: { cpf: '111', nome: 'Ana Maria', registro: '900' }, recebidas: 0, enviadas: 1 },
   ];
   const g = G.montarGrafo(pares, '111');
   assert.equal(g.nodes.length, 4);
   const ana = g.nodes.find(n => n.id === '111');
   assert.equal(ana.central, true);
   assert.equal(ana.label, 'Ana');
+  assert.equal(ana.registro, '900');
   assert.equal(ana.temFicha, true);
   const ext = g.nodes.find(n => !n.temFicha);
   assert.equal(ext.label, 'Externo');
+  assert.equal(ext.registro, '');
   assert.equal(ext.id, 'n:EXTERNO SILVA');
   assert.equal(g.edges.length, 3);
   const e = g.edges.find(x => x.source === '111' && x.target === '222');

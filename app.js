@@ -474,18 +474,21 @@ const lerPref = (k, padrao) => { try { return JSON.parse(localStorage.getItem(k)
 const gravarPref = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* armazenamento indisponível */ } };
 // Abas da ficha: mostra uma de cada vez e lembra a última escolhida (só conveniência).
 function ligarAbas() {
-  const abrir = k => {
-    for (const b of document.querySelectorAll('.aba-b')) b.setAttribute('aria-selected', b.dataset.aba === k);
-    for (const a of document.querySelectorAll('.aba')) a.hidden = a.dataset.aba !== k;
+  // aberta: mostra o conteúdo da aba k; fechada (k vazio): só a barra de abas. Guarda a aba e se está aberta.
+  const mostrar = (k, aberta) => {
+    for (const b of document.querySelectorAll('.aba-b')) b.setAttribute('aria-selected', aberta && b.dataset.aba === k);
+    for (const a of document.querySelectorAll('.aba')) a.hidden = !(aberta && a.dataset.aba === k);
+    $('.conteudo').classList.toggle('recolhida', !aberta);
     gravarPref('fp-aba', k);
-    document.querySelector(`.aba-b[data-aba="${k}"]`)?.scrollIntoView({ inline: 'center', block: 'nearest' });
+    gravarPref('fp-aba-aberta', aberta);
+    if (aberta) document.querySelector(`.aba-b[data-aba="${k}"]`)?.scrollIntoView({ inline: 'center', block: 'nearest' });
   };
   const atual = document.querySelector('.aba-b[aria-selected="true"]');
   if (atual) $('.abas').scrollLeft = atual.offsetLeft - $('.abas').clientWidth / 2 + atual.clientWidth / 2;
   for (const b of document.querySelectorAll('.aba-b')) b.onclick = () => {
-    abrir(b.dataset.aba);
-    const topo = $('.abas').getBoundingClientRect().top;
-    if (topo < 0 || topo > innerHeight / 2) $('.conteudo').scrollIntoView({ block: 'start' });
+    const jaAberta = b.getAttribute('aria-selected') === 'true';
+    mostrar(b.dataset.aba, !jaAberta); // clicar na aba aberta recolhe; em outra, abre aquela
+    if (!jaAberta) { const topo = $('.abas').getBoundingClientRect().top; if (topo < 0 || topo > innerHeight / 2) $('.conteudo').scrollIntoView({ block: 'start' }); }
   };
 }
 // Card do topo fixado: fica preso no alto, compacto (só nome e indicadores).
@@ -759,6 +762,7 @@ function telaFicha(cpf) {
       + card('Outras seções do relatório', outras.map(([t, rows]) => `<details><summary>${esc(t)} <span class="muted peq">(${rows.length})</span></summary>${tabela(rows)}</details>`).join(''))],
   ];
   const abaAtual = ABAS.some(a => a[0] === lerPref('fp-aba', '')) ? lerPref('fp-aba', '') : 'verif';
+  const abaAberta = lerPref('fp-aba-aberta', false); // padrão: abas recolhidas
   app.innerHTML = `
     <p class="linha"><a href="#/">← Criadores</a> <a href="javascript:history.back()">← Voltar</a>${navSequencia(cpf)}</p>
     <div class="ficha">
@@ -801,9 +805,9 @@ function telaFicha(cpf) {
 
     ${vincTxt ? card('Vínculos de cadastro com outros criadores', vincTxt) : ''}
       </aside>
-      <section class="conteudo">
-        <div class="abas" role="tablist">${ABAS.map(([k, t, n]) => `<button role="tab" type="button" class="aba-b" data-aba="${k}" aria-selected="${k === abaAtual}">${t}${n !== '' ? ` <span class="cont">${n}</span>` : ''}</button>`).join('')}</div>
-        ${ABAS.map(([k, , , h]) => `<div class="aba" data-aba="${k}" role="tabpanel" ${k === abaAtual ? '' : 'hidden'}>${h}</div>`).join('')}
+      <section class="conteudo ${abaAberta ? '' : 'recolhida'}">
+        <div class="abas" role="tablist">${ABAS.map(([k, t, n]) => `<button role="tab" type="button" class="aba-b" data-aba="${k}" aria-selected="${abaAberta && k === abaAtual}">${t}${n !== '' ? ` <span class="cont">${n}</span>` : ''}</button>`).join('')}</div>
+        ${ABAS.map(([k, , , h]) => `<div class="aba" data-aba="${k}" role="tabpanel" ${abaAberta && k === abaAtual ? '' : 'hidden'}>${h}</div>`).join('')}
       </section>
     </div>`;
   const recarregar = () => { const y = window.scrollY; telaFicha(cpf); window.scrollTo(0, y); };
@@ -811,7 +815,7 @@ function telaFicha(cpf) {
   ligarFixar();
   ligarMensagens(c, e);
   const bVinc = $('.aba-b[data-aba="vinc"]'); // o grafo só monta com a aba visível (precisa de tamanho)
-  if (bVinc) { bVinc.addEventListener('click', () => ligarGrafoFicha(c.cpf)); if (!$('.aba[data-aba="vinc"]').hidden) ligarGrafoFicha(c.cpf); }
+  if (bVinc) { bVinc.addEventListener('click', () => { if (!$('.aba[data-aba="vinc"]').hidden) ligarGrafoFicha(c.cpf); }); if (!$('.aba[data-aba="vinc"]').hidden) ligarGrafoFicha(c.cpf); }
   const obsLink = () => { $('#v-obs-whats').href = 'https://wa.me/?text=' + encodeURIComponent($('#v-obs').value); };
   const acrescentar = t => { const o = $('#v-obs'); if (!o.value.includes(t)) o.value = (o.value.trim() ? o.value.trim() + ' ' : '') + t; obsLink(); };
   $('#v-obs').oninput = obsLink;
