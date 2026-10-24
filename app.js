@@ -190,18 +190,22 @@ function telaLista() {
   const especies = [...new Set(todos.flatMap(c => (c.rel?.secoes.Plantel || []).map(a => a['Nome Popular'])).filter(Boolean))].sort();
   const cidades = [...new Set(todos.map(c => c.cidade).filter(Boolean))].sort();
   app.innerHTML = `
-    <div class="filtros">
-      <input id="q" type="search" list="especies" placeholder="Nome, CPF, anilha, endereço ou ave (ex.: cardeal-amarelo)" value="${esc(filtro.q)}">
-      <datalist id="especies">${especies.map(e => `<option value="${esc(e)}">`).join('')}</datalist>
-      <select id="cidade"><option value="">Todas as cidades</option>
-        ${cidades.map(c => `<option ${c === filtro.cidade ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
-      <select id="status">
-        ${(filtro.status && !FILTROS.some(([v]) => v === filtro.status) ? [[filtro.status, 'Pendência: ' + (ROTULO_ITEM[filtro.status.slice(5)] || filtro.status)], ...FILTROS] : FILTROS)
-          .map(([v, t]) => `<option value="${v}" ${v === filtro.status ? 'selected' : ''}>${t}</option>`).join('')}
-      </select>
-    </div>
-    <p id="cont" class="muted peq"></p>
-    <ul id="lista" class="lista card" style="padding:0"></ul>`;
+    <div class="tela-lista">
+      <div class="lista-topo">
+        <div class="filtros">
+          <input id="q" type="search" list="especies" placeholder="Nome, CPF, anilha, endereço ou ave (ex.: cardeal-amarelo)" value="${esc(filtro.q)}">
+          <datalist id="especies">${especies.map(e => `<option value="${esc(e)}">`).join('')}</datalist>
+          <select id="cidade"><option value="">Todas as cidades</option>
+            ${cidades.map(c => `<option ${c === filtro.cidade ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+          <select id="status">
+            ${(filtro.status && !FILTROS.some(([v]) => v === filtro.status) ? [[filtro.status, 'Pendência: ' + (ROTULO_ITEM[filtro.status.slice(5)] || filtro.status)], ...FILTROS] : FILTROS)
+              .map(([v, t]) => `<option value="${v}" ${v === filtro.status ? 'selected' : ''}>${t}</option>`).join('')}
+          </select>
+        </div>
+        <p id="cont" class="muted peq"></p>
+      </div>
+      <ul id="lista" class="lista card" style="padding:0"></ul>
+    </div>`;
   const desenhar = () => {
     const q = norm(filtro.q), qd = soDigitos(filtro.q);
     // Aves ativas cuja espécie (nome popular ou científico) contém o termo buscado.
@@ -240,7 +244,8 @@ function telaLista() {
   $('#cidade').onchange = e => { filtro.cidade = e.target.value; desenhar(); };
   $('#status').onchange = e => { filtro.status = e.target.value; desenhar(); };
   desenhar();
-  window.scrollTo(0, rolagem);
+  document.documentElement.style.setProperty('--topo-h', $('.topo').offsetHeight + 'px');
+  $('#lista').scrollTop = rolagem;
 }
 
 // ---------- ficha ----------
@@ -1372,7 +1377,7 @@ function rotear() {
 }
 window.addEventListener('hashchange', rotear);
 window.addEventListener('click', e => {
-  if (e.target.closest?.('#lista a')) rolagem = window.scrollY;
+  if (e.target.closest?.('#lista a')) rolagem = $('#lista')?.scrollTop || 0;
 });
 $('#btn-bloquear').onclick = () => location.reload();
 

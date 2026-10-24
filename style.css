@@ -140,3 +140,9 @@ main:has(.ficha) { max-width: 1320px; }
 .card.prazo-vencido { border-left: 5px solid var(--alerta); }
 nav .tag { margin: 0; }
 nav a { white-space: nowrap; }
+
+/* Tela de criadores: filtros travados no topo e a lista com rolagem própria. */
+.tela-lista { display: flex; flex-direction: column; height: calc(100dvh - var(--topo-h, 56px) - 32px); }
+.lista-topo { flex: 0 0 auto; }
+.lista-topo #cont { margin: 6px 2px 10px; }
+.tela-lista #lista { flex: 1 1 auto; overflow-y: auto; margin: 0; -webkit-overflow-scrolling: touch; }
