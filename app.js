@@ -689,12 +689,14 @@ function textoRelatorioVistoria(c, e, v) {
   });
 }
 function imprimirTexto(t) { imprimirArea(d => d.textContent = t); }
-function imprimirHTML(html) { imprimirArea(d => { d.className = 'doc-html'; d.innerHTML = html; }); }
-function imprimirArea(preencher) {
+function imprimirHTML(html, orientacao) { imprimirArea(d => { d.className = 'doc-html'; d.innerHTML = html; }, orientacao); }
+function imprimirArea(preencher, orientacao) {
   const d = document.createElement('div');
   d.id = 'area-print'; preencher(d);
+  const estilo = orientacao ? Object.assign(document.createElement('style'), { textContent: `@page { size: A4 ${orientacao}; }` }) : null;
+  if (estilo) document.head.append(estilo);
   document.body.append(d); document.body.classList.add('imprimindo');
-  const fim = () => { d.remove(); document.body.classList.remove('imprimindo'); removeEventListener('afterprint', fim); };
+  const fim = () => { d.remove(); estilo?.remove(); document.body.classList.remove('imprimindo'); removeEventListener('afterprint', fim); };
   addEventListener('afterprint', fim);
   window.print();
 }
@@ -710,7 +712,7 @@ function imprimirFicha(c, e) {
       enderecoAtual: c.enderecoAtual, bairro: c.bairro, cidade: c.cidade },
     ctf: e.ctf?.status || '', licenca: e.lic ? { periodo: e.lic.periodo, status: e.lic.status, numero: e.lic.numero, validade: e.lic.validade } : null,
     aves, impressoEm: Normas.fmt(new Date()),
-  }));
+  }), 'landscape');
 }
 
 const COLS_PLANTEL = ['Situação', 'Nome Popular', 'Espécie', 'Sexo', 'Nascimento', 'Código anilha', 'Diâmetro anilha', 'Marcação', 'ULTIMA_OPERACAO', 'DATA_OPERACAO'];
@@ -1422,11 +1424,17 @@ window.addEventListener('click', e => {
 });
 $('#btn-bloquear').onclick = () => location.reload();
 
+// Salvamento automático: grava o que estiver pendente a cada 30 s e ao sair/esconder o app.
+async function autosalvar() {
+  if (chave && db && (sujos.size || sujosAb.size)) { try { await salvar(); } catch { /* tenta no próximo ciclo */ } }
+}
+setInterval(autosalvar, 30000);
 let escondidoEm = 0;
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) escondidoEm = Date.now();
+  if (document.hidden) { escondidoEm = Date.now(); autosalvar(); }
   else if (db && escondidoEm && Date.now() - escondidoEm > 5 * 60e3) location.reload();
 });
+addEventListener('pagehide', autosalvar);
 
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js');
 rotear();
