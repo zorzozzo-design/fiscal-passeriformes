@@ -457,7 +457,13 @@ function ics({ uid, data, titulo, descricao = '' }) {
 }
 const textoNotificacao = n => `Notificado em ${dataIso(n.ciencia)} para regularizar em ${n.prazo} dias, até ${dataIso(somarDias(n.ciencia, +n.prazo))}${n.objeto ? ': ' + n.objeto : ''} (IN SEMA 04/2022, art. 64).`;
 
+// CTF cancelado se o relatório já aponta, ou se alguma observação do fiscal menciona "CTF cancelado".
+function ctfCancelado(status, textos = []) {
+  if (status === 'cancelado') return true;
+  return textos.some(t => /ctf[^.]{0,12}cancelad|cancelad[^.]{0,12}ctf/i.test(String(t ?? '')));
+}
+
 globalThis.Normas = { especie, ameaca, periodo, situacaoCTF, situacaoLicenca, ameacadasDoPlantel, verificar, textoSuspensao, fmt, canon, CONF, resumoConferencia, textoRelatorio,
   identificarEspecie, opcoesEspecies, resumoAbordagem, textoAbordagem, ESTADO_AVE, DESTINO_AVE, DOCUMENTACAO, MULTA, reais,
-  somarDias, situacaoPrazo, ics, textoNotificacao };
+  somarDias, situacaoPrazo, ics, textoNotificacao, ctfCancelado };
 })();

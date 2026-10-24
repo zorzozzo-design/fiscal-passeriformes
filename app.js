@@ -232,10 +232,10 @@ function telaLista() {
         r ? `<span class="tag">${r.ativas} ave(s) ativa(s)</span>` : '<span class="tag aviso">sem relatório</span>',
         e.ameacadas.length ? `<span class="tag ameaca">${e.ameacadas.length} ameaçada(s)</span>` : '',
         e.abertos.length ? `<span class="tag alerta">${e.abertos.length} pendência(s)</span>` : '',
-        e.ctf?.status === 'cancelado' ? '<span class="tag alerta">CTF cancelado</span>' : '',
+        ctfCanceladoDe(c, e) ? `<span class="tag alerta">CTF cancelado · ${r ? r.ativas + ' ave(s) no plantel' : 'sem relatório'}</span>` : '',
         e.ultima ? `<span class="tag ${e.ultima.resultado === 'irregular' ? 'alerta' : 'ok'}">Vistoria ${Normas.fmt(new Date(e.ultima.data + 'T12:00'))}: ${RESULTADO[e.ultima.resultado]}</span>` : '',
       ].join('');
-      return `<li><a href="#/c/${c.cpf}" class="${e.ameacadas.length ? 'ameacado' : ''}"><div class="nome">${esc(c.nome)}</div>
+      return `<li><a href="#/c/${c.cpf}" class="${e.ameacadas.length ? 'ameacado' : ''}"><div class="nome ${ctfCanceladoDe(c, e) ? 'tachado' : ''}">${esc(c.nome)}</div>
         <div class="muted peq">${esc(fmtCpf(c.cpf))} · Reg. ${esc(c.registro)} · ${esc(c.cidade)}${c.bairro ? ' · ' + esc(c.bairro) : ''}</div>
         <div>${tags}</div></a></li>`;
     }).join('');
@@ -449,6 +449,8 @@ function migrar(c) {
 
 const chip = (txt, cls = '') => `<span class="tag ${cls}">${esc(txt)}</span>`;
 const chipAmeaca = a => chip(`Ameaçada: ${[a.rs && 'RS ' + a.rs, a.br && 'BR ' + a.br].filter(Boolean).join(' · ')}`, 'ameaca');
+// CTF cancelado: pelo relatório ou mencionado nas observações do fiscal (notas, vistorias, providências).
+const ctfCanceladoDe = (c, e) => Normas.ctfCancelado(e.ctf?.status, [c.notas, ...(c.vistorias || []).map(v => v.obs), ...Object.values(c.acoes || {}).map(a => a.obs)]);
 
 function htmlItem(c, i, comCriador = false) {
   const estadoTxt = i.feito ? `Providência feita em ${Normas.fmt(new Date(i.feito.data + 'T12:00'))}${i.feito.obs ? ': ' + esc(i.feito.obs) : ''}`
@@ -768,7 +770,8 @@ function telaFicha(cpf) {
     <div class="ficha">
       <aside class="perfil">
     <div class="card ${e.ameacadas.length ? 'ameacado' : ''}" id="topo-ficha">
-      <div class="linha"><h1 style="flex:1">${esc(c.nome)}</h1><button class="sec" id="b-fixar" type="button" aria-pressed="false">📌 Fixar</button></div>
+      <div class="linha"><h1 style="flex:1" class="${ctfCanceladoDe(c, e) ? 'tachado' : ''}">${esc(c.nome)}</h1><button class="sec" id="b-fixar" type="button" aria-pressed="false">📌 Fixar</button></div>
+      ${ctfCanceladoDe(c, e) ? `<p>${chip(`CTF cancelado · ${r ? r.ativas + ' ave(s) no plantel' : 'sem relatório'}`, 'alerta')}</p>` : ''}
       ${e.ameacadas.length ? `<p>${chip(`${e.ameacadas.length} ave(s) de espécie ameaçada`, 'ameaca')}</p>` : ''}
       <div class="sits">
         ${sit('CTF', e.ctf ? esc(e.ctf.status) : '—', e.ctf ? (e.ctf.status === 'ativo' ? 'bom' : 'ruim') : '')}
@@ -803,7 +806,7 @@ function telaFicha(cpf) {
       ${e.ameacadas.map(a => `<div class="peq">${chipAmeaca(a)} <b>${esc(a.popular)}</b> <i>${esc(a.especie)}</i> · ${linkAnilha(a.anilha)}</div>`).join('')}
       <p class="muted peq">RS: Decreto 51.797/2014. BR: Portaria MMA 444/2014 (redação da Portaria MMA 1.704/2026).</p></div>` : ''}
 
-    ${vincTxt ? card('Vínculos de cadastro com outros criadores', vincTxt) : ''}
+    ${vincTxt ? `<details class="card card-dobra"><summary><b>Vínculos de cadastro com outros criadores</b></summary><div style="margin-top:8px">${vincTxt}</div></details>` : ''}
       </aside>
       <section class="conteudo ${abaAberta ? '' : 'recolhida'}">
         <div class="abas" role="tablist">${ABAS.map(([k, t, n]) => `<button role="tab" type="button" class="aba-b" data-aba="${k}" aria-selected="${abaAberta && k === abaAtual}">${t}${n !== '' ? ` <span class="cont">${n}</span>` : ''}</button>`).join('')}</div>

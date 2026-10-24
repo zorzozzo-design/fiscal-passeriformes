@@ -228,3 +228,13 @@ test('relatório da vistoria cita a notificação', () => {
   const t2 = N.textoAbordagem({ prazo: { data: '2026-11-01', motivo: 'apresentar documentos' } });
   assert.ok(t2.includes('Prazo / retorno: 01/11/2026 (apresentar documentos)'));
 });
+
+// ---------- CTF cancelado: status do relatório ou menção em observação ----------
+test('detecta CTF cancelado por status ou por texto', () => {
+  assert.equal(N.ctfCancelado('cancelado', []), true);
+  assert.equal(N.ctfCancelado('ativo', []), false);
+  assert.equal(N.ctfCancelado('', ['Fulano informou que o CTF está cancelado']), true);
+  assert.equal(N.ctfCancelado('ativo', ['ctf  CANCELADO no sistema']), true);
+  assert.equal(N.ctfCancelado('', ['sem observações', '', null]), false);
+  assert.equal(N.ctfCancelado('não encontrado', ['plantel ok']), false);
+});

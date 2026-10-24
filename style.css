@@ -162,3 +162,6 @@ nav a { white-space: nowrap; }
 .end-atual { border: 0; padding: 0; margin: 4px 0 0; }
 .end-atual > summary { font-weight: 600; }
 .end-atual input { margin-top: 6px; }
+.tachado { text-decoration: line-through; text-decoration-color: var(--alerta); text-decoration-thickness: 2px; }
+details.card-dobra { padding: 12px 14px; }
+details.card-dobra > summary { list-style: revert; }
