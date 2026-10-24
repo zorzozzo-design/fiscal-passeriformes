@@ -150,11 +150,11 @@ function desenhar(id, tipo, dados) {
 
 // ---------- grafo na ficha e na tela própria ----------
 // Pares de transferência confirmada do criador central (um nível), resolvendo nomes a CPF pela base.
-function paresDe(cpf, idx) {
+function paresDe(cpf, idx, anos) {
   const c = db.criadores[cpf];
   if (!c?.rel) return [];
   const central = { cpf, nome: c.nome, registro: c.registro }, out = [];
-  for (const v of vinculos(c.rel)) {
+  for (const v of vinculos(c.rel, anos)) {
     const achado = (idx[normNome(v.nome)] || []).find(x => x.cpf !== cpf) || null;
     const outro = { cpf: achado?.cpf || '', nome: achado?.nome || v.nome, registro: achado?.registro || '' };
     if (v.recebidas) out.push({ de: outro, para: central, recebidas: v.recebidas, enviadas: 0 });
@@ -163,12 +163,12 @@ function paresDe(cpf, idx) {
   return out;
 }
 let cyInst = null;
-function montarCy(containerId, cpf, expandir) {
+function montarCy(containerId, cpf, expandir, anos) {
   const idx = indiceNomes();
-  let pares = paresDe(cpf, idx);
+  let pares = paresDe(cpf, idx, anos);
   if (expandir) { // mais um nível: vínculos dos vizinhos que estão na base
     const vizinhos = new Set(pares.map(p => (p.de.cpf === cpf ? p.para.cpf : p.de.cpf)).filter(Boolean));
-    for (const v of vizinhos) pares = pares.concat(paresDe(v, idx));
+    for (const v of vizinhos) pares = pares.concat(paresDe(v, idx, anos));
   }
   const g = Graf.montarGrafo(pares, cpf);
   const el = $('#' + containerId);
@@ -191,19 +191,28 @@ function montarCy(containerId, cpf, expandir) {
   cyInst.on('tap', 'node', ev => { const d = ev.target.data(); location.hash = d.temFicha ? '#/c/' + d.id : '#/?q=' + encodeURIComponent(d.nome); });
 }
 
+const anosMarcados = () => [...document.querySelectorAll('.grafo-ano:checked')].map(x => +x.value);
 function ligarGrafoFicha(cpf) {
   const cont = $('#grafo-ficha');
   if (!cont) return;
-  montarCy('grafo-ficha', cpf, $('#grafo-exp')?.checked);
-  if ($('#grafo-exp')) $('#grafo-exp').onchange = () => montarCy('grafo-ficha', cpf, $('#grafo-exp').checked);
+  const remontar = () => montarCy('grafo-ficha', cpf, $('#grafo-exp')?.checked, anosMarcados());
+  remontar();
+  if ($('#grafo-exp')) $('#grafo-exp').onchange = remontar;
+  for (const x of document.querySelectorAll('.grafo-ano')) x.onchange = remontar;
 }
 function cardGrafo(cpf) {
-  const tem = db.criadores[cpf]?.rel && vinculos(db.criadores[cpf].rel).length;
+  const c = db.criadores[cpf];
+  const tem = c?.rel && vinculos(c.rel).length;
+  const anos = tem ? Parser.anosVinculo(c.rel) : [];
   return `<div class="card"><h2>Grafo de vínculos</h2>
     ${!tem ? '<p class="muted peq">Sem transferências confirmadas no relatório.</p>' : `
-    <label class="chk"><input type="checkbox" id="grafo-exp"> Expandir mais um nível</label>
+    <div class="linha" style="gap:10px">
+      <label class="chk" style="margin:0"><input type="checkbox" id="grafo-exp"> Expandir mais um nível</label>
+      ${anos.length > 1 ? `<details class="ms"><summary>Ano${anosMarcados().length ? ` <span class="tag">${anosMarcados().length}</span>` : ''}</summary>
+        <div class="ms-op">${anos.map(a => `<label class="chk"><input type="checkbox" class="grafo-ano" value="${a}"> ${a}</label>`).join('')}</div></details>` : ''}
+    </div>
     <div id="grafo-ficha" class="grafo-box"></div>
-    <p class="muted peq">Vermelho: criador atual. Verde: criador na base (clique abre a ficha). Cinza: fora da base (clique busca pelo nome para você conferir e importar). O número abaixo do nome é o cadastro no SISPASS, quando conhecido. Seta: sentido da transferência.</p>`}</div>`;
+    <p class="muted peq">Vermelho: criador atual. Verde: criador na base (clique abre a ficha). Cinza: fora da base (clique busca pelo nome para você conferir e importar). O número abaixo do nome é o cadastro no SISPASS, quando conhecido. Seta: sentido da transferência. Sem ano marcado, mostra todos.</p>`}</div>`;
 }
 
 function telaGrafo(cpf) {

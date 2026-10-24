@@ -100,3 +100,30 @@ test('arestas duplicadas somam as transferências', () => {
   assert.equal(g.edges.length, 1);
   assert.equal(g.edges[0].enviadas, 4);
 });
+
+// ---------- filtro de ano no grafo ----------
+const relT = { secoes: {
+  'Transferências Recebidas': [
+    { 'Nome do Doador': 'Ana', 'Data do Recebimento': '10/03/2016', 'Operação do Receptor': 'confirmar transferência' },
+    { 'Nome do Doador': 'Bruno', 'Data do Recebimento': '05/07/2018', 'Operação do Receptor': 'confirmar transferência' },
+    { 'Nome do Doador': 'Caio', 'Data do Recebimento': '01/01/2018', 'Operação do Receptor': 'recusar transferência' },
+  ],
+  'Transferências Solicitadas': [
+    { 'Nome do Receptor': 'Ana', 'Data Recebimento': '20/09/2018', 'Operação do Receptor': 'confirmar transferência' },
+  ],
+} };
+test('vínculos filtram por ano', () => {
+  const P = globalThis.Parser;
+  assert.equal(P.vinculos(relT).length, 2); // Ana e Bruno (Caio recusada)
+  const so2016 = P.vinculos(relT, [2016]);
+  assert.deepEqual(so2016.map(v => v.nome), ['Ana']);
+  assert.equal(so2016[0].recebidas, 1);
+  assert.equal(so2016[0].enviadas, 0);
+  const so2018 = P.vinculos(relT, [2018]);
+  assert.equal(so2018.find(v => v.nome === 'Ana').enviadas, 1);
+  assert.equal(so2018.find(v => v.nome === 'Ana').recebidas, 0);
+  assert.ok(so2018.some(v => v.nome === 'Bruno'));
+});
+test('lista de anos de vínculo em ordem decrescente', () => {
+  assert.deepEqual(globalThis.Parser.anosVinculo(relT), [2018, 2016]);
+});

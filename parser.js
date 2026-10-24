@@ -69,18 +69,29 @@ const normNome = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').t
 const chaveAnilha = s => String(s ?? '').toUpperCase().replace(/[^0-9A-Z]/g, '');
 
 // Criadores com quem houve transferência confirmada (o relatório traz só o nome, sem CPF).
-function vinculos(rel) {
+// anos: lista/Set de anos (number) para filtrar pela data da transferência; vazio ou ausente = todos.
+function vinculos(rel, anos) {
+  const filtra = anos && anos.length ? new Set([...anos].map(Number)) : null;
   const mapa = {};
   const somar = (nome, campo, data) => {
     if (!nome) return;
+    const d = parseData(data);
+    if (filtra && !(d && filtra.has(d.getFullYear()))) return;
     const v = mapa[normNome(nome)] ||= { nome, recebidas: 0, enviadas: 0, ultima: '' };
     v[campo]++;
-    if (!v.ultima || parseData(data) > parseData(v.ultima)) v.ultima = data;
+    if (!v.ultima || d > parseData(v.ultima)) v.ultima = data;
   };
   const confirmada = r => /confirmar/i.test(r['Operação do Receptor'] || '');
   for (const r of rel.secoes['Transferências Recebidas'] || []) if (confirmada(r)) somar(r['Nome do Doador'], 'recebidas', r['Data do Recebimento']);
   for (const r of rel.secoes['Transferências Solicitadas'] || []) if (confirmada(r)) somar(r['Nome do Receptor'], 'enviadas', r['Data Recebimento']);
   return Object.values(mapa).sort((a, b) => normNome(a.nome).localeCompare(normNome(b.nome)));
+}
+// Anos (desc) com transferência confirmada, para o filtro do grafo.
+function anosVinculo(rel) {
+  const anos = new Set(), confirmada = r => /confirmar/i.test(r['Operação do Receptor'] || '');
+  for (const [sec, col] of [['Transferências Recebidas', 'Data do Recebimento'], ['Transferências Solicitadas', 'Data Recebimento']])
+    for (const r of rel.secoes[sec] || []) if (confirmada(r)) { const d = parseData(r[col]); if (d) anos.add(d.getFullYear()); }
+  return [...anos].sort((a, b) => b - a);
 }
 
 // Óbitos declarados no Histórico, com a idade calculada pela data de nascimento do Plantel.
@@ -213,5 +224,5 @@ function resumo(rel, cfg, hoje = new Date()) {
   return { ativas: ativas.length, total: plantel.length, ocorrencias, ultimaLicenca, ultimaOperacao, alertas };
 }
 
-globalThis.Parser = { nomeProprio, parseRelatorio, serializar, resumo, soDigitos, parseData, vinculos, chaveAnilha, normNome, obitos, idadesPorEspecie, indicios };
+globalThis.Parser = { nomeProprio, parseRelatorio, serializar, resumo, soDigitos, parseData, vinculos, anosVinculo, chaveAnilha, normNome, obitos, idadesPorEspecie, indicios };
 })();
