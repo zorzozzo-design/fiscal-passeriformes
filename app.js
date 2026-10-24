@@ -1301,9 +1301,11 @@ function telaDados() {
       <div class="linha"><button id="b-xlsx" type="button">Exportar planilha</button></div>
       <p id="m-xlsx" class="msg"></p>
       <p class="muted peq"><b>Backup criptografado (.json):</b> o backup sai criptografado com a sua senha atual. No outro aparelho, importe o arquivo: os dados são mesclados (vale o relatório e a anotação mais recentes de cada criador).</p>
-      <div class="linha"><button id="b-exp" type="button">Exportar backup</button>
+      <div class="linha"><button id="b-nuvem" type="button">Enviar para a nuvem</button>
+        <button class="sec" id="b-exp" type="button">Baixar backup</button>
         <label class="btn sec" style="margin:0">Importar backup<input type="file" id="f-bak" accept=".json,application/json" hidden></label></div>
-      <p id="m-bak" class="msg"></p></div>
+      <p id="m-bak" class="msg"></p>
+      <p class="muted peq"><b>Google Drive / OneDrive:</b> em "Enviar para a nuvem", no celular, escolha o Drive ou o OneDrive no menu de compartilhar. No computador, use "Baixar backup" e salve o arquivo na pasta do Drive/OneDrive. Para trazer de volta, toque em "Importar backup" e escolha o arquivo no Drive/OneDrive (ou na pasta sincronizada). O app precisa dos dados no aparelho para funcionar na rua, sem internet: a nuvem é backup e serve para passar de um aparelho para outro.</p></div>
 
     <div class="card"><h2>4. Alertas, indícios e assinatura</h2>
       <div class="grade">
@@ -1359,14 +1361,27 @@ function telaDados() {
   $('#b-xlsx').onclick = () => {
     try { msg('#m-xlsx', exportarPlanilha()); } catch (err) { msg('#m-xlsx', 'Erro ao exportar: ' + err.message, true); }
   };
-  $('#b-exp').onclick = async () => {
-    const blob = new Blob([JSON.stringify(await cifrar(chave, salt, db))], { type: 'application/json' });
-    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob),
-      download: `backup-passeriformes-${hojeIso()}.json` });
+  const baixarBlob = (blob, nome) => {
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: nome });
     a.click();
     URL.revokeObjectURL(a.href);
-    msg('#m-bak', 'Backup exportado.');
   };
+  const exportarBackup = async enviar => {
+    const nome = `backup-passeriformes-${hojeIso()}.json`;
+    const blob = new Blob([JSON.stringify(await cifrar(chave, salt, db))], { type: 'application/json' });
+    // No celular, "Enviar para a nuvem" abre o menu de compartilhar (Google Drive, OneDrive, etc.).
+    if (enviar && navigator.canShare) {
+      const arq = new File([blob], nome, { type: 'application/json' });
+      if (navigator.canShare({ files: [arq] })) {
+        try { await navigator.share({ files: [arq], title: nome }); return msg('#m-bak', 'Backup enviado. Salve no Google Drive ou OneDrive.'); }
+        catch (err) { if (err.name === 'AbortError') return; } // fallback para download
+      }
+    }
+    baixarBlob(blob, nome);
+    msg('#m-bak', enviar ? 'Compartilhar indisponível neste aparelho: backup baixado. Salve o arquivo na pasta do Drive/OneDrive.' : 'Backup exportado.');
+  };
+  $('#b-exp').onclick = () => exportarBackup(false);
+  if ($('#b-nuvem')) $('#b-nuvem').onclick = () => exportarBackup(true);
   $('#f-bak').onchange = async e => {
     try {
       const cofre = JSON.parse(await e.target.files[0].text());
