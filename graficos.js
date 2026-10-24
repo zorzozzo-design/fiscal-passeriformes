@@ -180,7 +180,7 @@ function montarCy(containerId, cpf, expandir, anos) {
     container: el, elements: [...g.nodes.map(n => ({ data: n })), ...g.edges.map(e => ({ data: e }))],
     style: [
       { selector: 'node', style: { 'background-color': n => n.data('central') ? '#b42318' : n.data('temFicha') ? '#0b5e3a' : '#9aa8a1',
-        label: n => `${n.data('label')}\n${n.data('registro') ? 'SISPASS ' + n.data('registro') : 'fora da base'}`, 'text-wrap': 'wrap', 'line-height': 1.1,
+        label: n => n.data('registro') ? `${n.data('label')}\n${n.data('registro')}` : n.data('label'), 'text-wrap': 'wrap', 'line-height': 1.1,
         color: escuro ? '#e6ece9' : '#16211c', 'font-size': 7, 'text-valign': 'bottom', 'text-margin-y': 2, width: n => n.data('central') ? 24 : 16, height: n => n.data('central') ? 24 : 16 } },
       { selector: 'edge', style: { width: 1.5, 'line-color': escuro ? '#3a4a43' : '#b9c4bd', 'target-arrow-color': escuro ? '#3a4a43' : '#b9c4bd',
         'target-arrow-shape': 'triangle', 'curve-style': 'bezier', label: 'data(label)', 'font-size': 7, color: escuro ? '#9aa8a1' : '#5d6b64', 'text-background-color': escuro ? '#18201c' : '#fff', 'text-background-opacity': 0.8, 'text-background-padding': 2 } },
