@@ -155,6 +155,26 @@ function telaAbordagem(id) {
       <div class="frases">${FRASES_AB.map(f => `<button class="sec ab-frase" type="button">${esc(f)}</button>`).join('')}</div>
       <textarea id="ab-relato" data-k="relato" rows="6" placeholder="Clique nas frases acima e complete digitando">${esc(ab.relato || '')}</textarea>
     </div>
+
+    <div class="card"><h2>Documentos oficiais (impressão)</h2>
+      <p class="muted peq">Preencha os dados do agente e os logos em Dados, item 4. A notificação e o termo saem no modelo da Brigada Militar.</p>
+      <h3 style="font-size:1rem;margin:10px 0 4px">Notificação ambiental</h3>
+      <label for="ab-nt-motivo">Motivo <button class="sec" id="ab-nt-sugerir" type="button" style="font-weight:500;padding:2px 8px;margin-left:6px">Sugerir</button></label>
+      <textarea id="ab-nt-motivo" data-k="notificacao.motivo" rows="3" placeholder="Ex.: Mantém aves sem licença e sem anilha.">${esc(ab.notificacao?.motivo || '')}</textarea>
+      ${campo('notificacao.comparecimento', 'Endereço de comparecimento', 'text', `value="${esc(ab.notificacao?.comparecimento || db.cfg.comparecimento || '')}"`)}
+      <p><button class="sec b-doc-nt" type="button">Imprimir notificação</button></p>
+      <h3 style="font-size:1rem;margin:14px 0 4px">Termo de apreensão e fiel depositário</h3>
+      <p class="muted peq">Usa as aves com destino "apreendida" e os petrechos.</p>
+      <div class="grade">
+        <div><label for="ab-ap-tipo">Documento de origem</label><select id="ab-ap-tipo" data-k="apreensao.docTipo">${opcoes({ 'BO/TC-COP': 'BO/TC-COP', 'BA': 'BA' }, ab.apreensao?.docTipo, '—')}</select></div>
+        ${campo('apreensao.docNumero', 'Número')}
+        <div><label for="ab-ap-dest">Destinação (sem fiel depositário)</label><select id="ab-ap-dest" data-k="apreensao.destinacao">${opcoes(Object.fromEntries(Docs.DESTINOS.map(d => [d, d])), ab.apreensao?.destinacao, '—')}</select></div>
+      </div>
+      <h4 style="font-size:.95rem;margin:10px 0 4px">Fiel depositário (se houver)</h4>
+      <div class="grade">${campo('apreensao.fiel.nome', 'Nome')}${campo('apreensao.fiel.cpf', 'CPF')}${campo('apreensao.fiel.rg', 'RG')}${campo('apreensao.fiel.telefone', 'Telefone', 'tel')}${campo('apreensao.fiel.municipioUf', 'Município/UF')}</div>
+      ${campo('apreensao.fiel.endereco', 'Endereço do fiel depositário')}
+      <p><button class="sec b-doc-ap" type="button">Imprimir termo de apreensão</button></p>
+    </div>
   </div>
 
   <div class="card"><h2>Relatório</h2>
@@ -241,6 +261,15 @@ function telaAbordagem(id) {
     try { await navigator.clipboard.writeText(t.value); $('#ab-rel-copiar').textContent = 'Copiado'; } catch { t.select(); $('#ab-rel-copiar').textContent = 'Use Ctrl+C'; }
   };
   $('#ab-rel-imprimir').onclick = () => imprimirTexto($('#ab-rel textarea').value);
+  const temAgente = () => db.cfg.agente?.nome || (aviso('Preencha o nome do agente em Dados, item 4.'), false);
+  const temPessoa = () => (ab.pessoa?.nome || '').trim() || (aviso('Preencha o nome do abordado.'), false);
+  $('#ab-nt-sugerir').onclick = () => {
+    const r = Normas.resumoAbordagem(ab);
+    $('#ab-nt-motivo').value = `Mantém ${r.aves || 'aves'} ave(s) da fauna silvestre nativa em cativeiro sem licença ou autorização${r.ameacadas ? `, sendo ${r.ameacadas} de espécie ameaçada de extinção` : ''} (Lei 9.605/98, art. 29; IN SEMA 04/2022).`;
+    alterou();
+  };
+  $('.b-doc-nt').onclick = () => { coletar(); if (temAgente() && temPessoa()) imprimirDoc(Docs.notificacao(ab, db.cfg)); };
+  $('.b-doc-ap').onclick = () => { coletar(); if (temAgente() && temPessoa()) imprimirDoc(Docs.termoApreensao(ab, db.cfg)); };
   $('#ab-excluir').onclick = async () => {
     if (!confirm('Excluir esta abordagem?')) return;
     clearTimeout(timer);

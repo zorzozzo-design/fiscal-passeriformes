@@ -721,16 +721,31 @@ function textoRelatorioVistoria(c, e, v) {
 }
 function imprimirTexto(t) { imprimirArea(d => d.textContent = t); }
 function imprimirHTML(html, orientacao) { imprimirArea(d => { d.className = 'doc-html'; d.innerHTML = html; }, orientacao); }
-function imprimirArea(preencher, orientacao) {
+// Documento oficial (Notificação, Termo de Apreensão, Regularização): A4 retrato com margem 8mm.
+function imprimirDoc(html) { imprimirArea(d => { d.className = 'doc-html doc-oficial'; d.innerHTML = html; }, 'portrait', '8mm'); }
+function imprimirArea(preencher, orientacao, margem) {
   const d = document.createElement('div');
   d.id = 'area-print'; preencher(d);
-  const estilo = orientacao ? Object.assign(document.createElement('style'), { textContent: `@page { size: A4 ${orientacao}; }` }) : null;
+  const estilo = orientacao ? Object.assign(document.createElement('style'), { textContent: `@page { size: A4 ${orientacao}; ${margem ? 'margin: ' + margem + ';' : ''} }` }) : null;
   if (estilo) document.head.append(estilo);
   document.body.append(d); document.body.classList.add('imprimindo');
   const fim = () => { d.remove(); estilo?.remove(); document.body.classList.remove('imprimindo'); removeEventListener('afterprint', fim); };
   addEventListener('afterprint', fim);
   window.print();
 }
+// Lê uma imagem e devolve um PNG reduzido (até 300 px) como data URL, para o cabeçalho dos documentos.
+const lerImagem = arq => new Promise((ok, erro) => {
+  const img = new Image();
+  img.onload = () => {
+    const k = Math.min(1, 300 / Math.max(img.width, img.height));
+    const c = Object.assign(document.createElement('canvas'), { width: Math.round(img.width * k), height: Math.round(img.height * k) });
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    URL.revokeObjectURL(img.src);
+    ok(c.toDataURL('image/png'));
+  };
+  img.onerror = () => erro(new Error('Imagem inválida.'));
+  img.src = URL.createObjectURL(arq);
+});
 // Monta e imprime a ficha básica do criador (dados, situação e plantel ativo).
 function imprimirFicha(c, e) {
   const r = e.r, ameacaDe = {};
@@ -854,6 +869,8 @@ function telaFicha(cpf) {
         <a class="btn sec" target="_blank" rel="noopener noreferrer" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(end)}">Abrir no mapa</a>
         <button class="sec" id="copiar" type="button">Copiar CPF</button>
         <button class="sec" id="imprimir-ficha" type="button">Imprimir ficha (PDF)</button>
+        <button class="sec" id="doc-regular" type="button">Regularizar plantel</button>
+        <button class="sec" id="doc-notif" type="button">Notificação</button>
       </div></div>
     </div>
 
@@ -907,6 +924,23 @@ function telaFicha(cpf) {
     try { await navigator.clipboard.writeText(c.cpf); $('#copiar').textContent = 'CPF copiado'; } catch { $('#copiar').textContent = c.cpf; }
   };
   $('#imprimir-ficha').onclick = () => imprimirFicha(c, e);
+  const semAgente = () => !db.cfg.agente?.nome && (aviso('Preencha o nome do agente em Dados, item 4.'), true);
+  const itensRegular = () => e.abertos.filter(i => i.destino !== 'Campo' && i.tipo === 'nc').map(i => `${i.titulo}${i.base ? ' (' + i.base + ')' : ''}`);
+  $('#doc-regular').onclick = () => {
+    if (semAgente()) return;
+    const limite = Normas.somarDias(hojeIso(), 15);
+    imprimirDoc(Docs.regularizacaoPlantel({
+      criador: { nome: c.nome, cpf: c.cpf, registro: c.registro, endereco: [c.enderecoAtual || c.endereco, c.bairro, c.cidade].filter(Boolean).join(', ') },
+      itens: itensRegular(), prazo: 15, dataLimite: Normas.fmt(new Date(limite + 'T12:00')), ciencia: Normas.fmt(new Date()),
+    }, db.cfg));
+  };
+  $('#doc-notif').onclick = () => {
+    if (semAgente()) return;
+    const motivo = itensRegular().join(' ') || 'Irregularidades constatadas na criação amadora de passeriformes.';
+    const lo = { endereco: c.enderecoAtual || c.endereco, bairro: c.bairro, cidade: c.cidade };
+    imprimirDoc(Docs.notificacao({ data: new Date().toISOString().slice(0, 16), pessoa: { nome: c.nome, cpf: c.cpf, endereco: lo.endereco, bairro: c.bairro, cidade: c.cidade },
+      local: lo, notificacao: { motivo, comparecimento: db.cfg.comparecimento || '' } }, db.cfg));
+  };
   $('#sexo').onchange = async ev => { c.sexo = ev.target.value || undefined; sujos.add(c.cpf); await salvar(); aviso('Sexo salvo.'); recarregar(); };
   if ($('#end-atual')) $('#end-atual').onchange = async ev => {
     const novo = ev.target.value.trim();
@@ -1392,6 +1426,17 @@ function telaDados() {
       </div>
       <label for="c-assin">Assinatura das mensagens</label>
       <textarea id="c-assin" rows="3" placeholder="Ex.: Nome, posto/graduação, PATRAM, pelotão, telefone">${esc(db.cfg.assinatura || '')}</textarea>
+      <h3 style="margin:14px 0 4px;font-size:1rem">Documentos oficiais (notificação, apreensão, regularização)</h3>
+      <div class="grade">
+        <div><label for="g-nome">Nome do agente</label><input id="g-nome" value="${esc(db.cfg.agente?.nome || '')}" placeholder="Ex.: Sd PM Fulano de Tal"></div>
+        <div><label for="g-id">Id Func.</label><input id="g-id" value="${esc(db.cfg.agente?.idFunc || '')}"></div>
+        <div><label for="g-fr">Fração</label><input id="g-fr" value="${esc(db.cfg.agente?.fracao || '')}" placeholder="Ex.: 4º Pel / 1º BABM"></div>
+      </div>
+      <div class="grade" style="margin-top:6px">
+        <div><label for="g-bras">Brasão (imagem)</label><input id="g-bras" type="file" accept="image/*"><span id="v-bras"></span></div>
+        <div><label for="g-cmd">Logo do Comando (imagem)</label><input id="g-cmd" type="file" accept="image/*"><span id="v-cmd"></span></div>
+      </div>
+      <p class="muted peq">As imagens entram no cabeçalho dos documentos. Ficam salvas neste aparelho.</p>
       <p><button id="b-cfg" type="button">Salvar</button> <span id="m-cfg" class="muted peq"></span></p></div>
 
     <div class="card"><h2>Apagar</h2>
@@ -1472,12 +1517,22 @@ function telaDados() {
     } catch (err) { msg('#m-bak', err.message, true); }
     e.target.value = '';
   };
+  const logos = { ...(db.cfg.logos || {}) };
+  const verLogos = () => {
+    $('#v-bras').innerHTML = logos.brasao ? `<img src="${esc(logos.brasao)}" alt="" style="height:48px;margin-left:8px;vertical-align:middle">` : '';
+    $('#v-cmd').innerHTML = logos.comando ? `<img src="${esc(logos.comando)}" alt="" style="height:48px;margin-left:8px;vertical-align:middle">` : '';
+  };
+  verLogos();
+  $('#g-bras').onchange = async e => { if (e.target.files[0]) { logos.brasao = await lerImagem(e.target.files[0]); verLogos(); } };
+  $('#g-cmd').onchange = async e => { if (e.target.files[0]) { logos.comando = await lerImagem(e.target.files[0]); verLogos(); } };
   $('#b-cfg').onclick = async () => {
     db.cfg.idadeMax = Math.max(1, +$('#c-idade').value || 20);
     db.cfg.anosSemMov = Math.max(1, +$('#c-mov').value || 10);
     db.cfg.diasSaida = Math.max(1, +$('#c-saida').value || 30);
     db.cfg.transfAno = Math.max(1, +$('#c-ano').value || 10);
     db.cfg.assinatura = $('#c-assin').value.trim();
+    db.cfg.agente = { nome: $('#g-nome').value.trim(), idFunc: $('#g-id').value.trim(), fracao: $('#g-fr').value.trim() };
+    db.cfg.logos = logos;
     await salvar();
     msg('#m-cfg', 'Salvo.');
     aviso('Configurações salvas.');
