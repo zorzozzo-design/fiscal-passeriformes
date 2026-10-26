@@ -217,7 +217,7 @@ function telaAbordagem(id) {
   $('#ab-add-pet').onclick = () => { $('#ab-pets').insertAdjacentHTML('beforeend', linhaPet()); $('#ab-pets .ab-pet:last-child [data-f="item"]').focus(); };
   if ($('#ab-atender')) $('#ab-atender').onclick = async () => {
     coletar(); ab.status = 'atendida'; if (!ab.data) ab.data = agoraLocal();
-    await gravar(); telaAbordagem(id);
+    await gravar(); aviso('Abordagem atendida.'); telaAbordagem(id);
   };
   $('#ab-gps').onclick = () => {
     const m = $('#ab-gps-m');
@@ -244,7 +244,7 @@ function telaAbordagem(id) {
   $('#ab-excluir').onclick = async () => {
     if (!confirm('Excluir esta abordagem?')) return;
     clearTimeout(timer);
-    delete db.abordagens[id]; sujosAb.add(id); await salvar();
+    delete db.abordagens[id]; sujosAb.add(id); await salvar(); aviso('Abordagem excluída.');
     location.hash = '#/abordagens';
   };
   atualizarInfo();

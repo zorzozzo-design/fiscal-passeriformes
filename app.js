@@ -89,8 +89,10 @@ async function lerLoja(loja) {
 }
 async function carregar(meta) {
   db = { cfg: (await decifrar(chave, meta)).cfg, criadores: {}, abordagens: {} };
-  for (const [cpf, v] of await lerLoja('criadores')) db.criadores[cpf] = await decifrar(chave, v);
-  for (const [id, v] of await lerLoja('abordagens')) db.abordagens[id] = await decifrar(chave, v);
+  // Descriptografa em paralelo (antes era um a um, lento com muitos relatórios).
+  const [cri, abs] = await Promise.all([lerLoja('criadores'), lerLoja('abordagens')]);
+  (await Promise.all(cri.map(async ([cpf, v]) => [cpf, await decifrar(chave, v)]))).forEach(([cpf, c]) => db.criadores[cpf] = c);
+  (await Promise.all(abs.map(async ([id, v]) => [id, await decifrar(chave, v)]))).forEach(([id, a]) => db.abordagens[id] = a);
   for (const c of Object.values(db.criadores)) if (migrar(c)) sujos.add(c.cpf);
   if (sujos.size) await salvar();
 }
@@ -116,6 +118,8 @@ async function telaSenha() {
   $('#f').onsubmit = async e => {
     e.preventDefault();
     const s1 = $('#s1').value;
+    mostrarCarregando(true); // derivar a chave e abrir os dados pode demorar
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); // deixa o passarinho aparecer
     try {
       if (existe) {
         salt = unb64(existe.salt);
@@ -141,6 +145,8 @@ async function telaSenha() {
     } catch (err) {
       chave = null;
       $('#m').textContent = err.message?.includes('conferem') ? err.message : 'Senha incorreta.';
+    } finally {
+      mostrarCarregando(false);
     }
   };
   $('#esqueci')?.addEventListener('click', async e => {
@@ -543,10 +549,12 @@ function ligarItens(depois) {
   for (const b of document.querySelectorAll('.b-feito, .b-desfazer')) b.onclick = async () => {
     const el = b.closest('.item'), c = db.criadores[el.dataset.cpf], id = el.dataset.id;
     c.acoes ||= {};
-    if (b.classList.contains('b-desfazer')) delete c.acoes[id];
+    const desfazer = b.classList.contains('b-desfazer');
+    if (desfazer) delete c.acoes[id];
     else c.acoes[id] = { data: hojeIso(), obs: prompt('Observação (opcional):') || '' };
     sujos.add(c.cpf);
     await salvar();
+    aviso(desfazer ? 'Ação desfeita.' : 'Providência registrada.');
     depois();
   };
 }
@@ -899,17 +907,17 @@ function telaFicha(cpf) {
     try { await navigator.clipboard.writeText(c.cpf); $('#copiar').textContent = 'CPF copiado'; } catch { $('#copiar').textContent = c.cpf; }
   };
   $('#imprimir-ficha').onclick = () => imprimirFicha(c, e);
-  $('#sexo').onchange = async ev => { c.sexo = ev.target.value || undefined; sujos.add(c.cpf); await salvar(); recarregar(); };
+  $('#sexo').onchange = async ev => { c.sexo = ev.target.value || undefined; sujos.add(c.cpf); await salvar(); aviso('Sexo salvo.'); recarregar(); };
   if ($('#end-atual')) $('#end-atual').onchange = async ev => {
     const novo = ev.target.value.trim();
     if (novo === (c.enderecoAtual || '')) return;
-    c.enderecoAtual = novo || undefined; sujos.add(c.cpf); await salvar();
+    c.enderecoAtual = novo || undefined; sujos.add(c.cpf); await salvar(); aviso('Endereço atual salvo.');
     const y = window.scrollY; telaFicha(cpf); window.scrollTo(0, y);
   };
   if ($('#obs-campo')) $('#obs-campo').onchange = async ev => {
     const novo = ev.target.value.trim();
     if (novo === (c.obs || '')) return;
-    c.obs = novo || undefined; sujos.add(c.cpf); await salvar();
+    c.obs = novo || undefined; sujos.add(c.cpf); await salvar(); aviso('Observações salvas.');
     const y = window.scrollY; telaFicha(cpf); window.scrollTo(0, y); // reflete na aba Histórico
   };
   $('#b-vistoria').onclick = async () => {
@@ -927,6 +935,7 @@ function telaFicha(cpf) {
     (c.vistorias ||= []).push(v);
     sujos.add(c.cpf);
     await salvar();
+    aviso('Vistoria salva.');
     recarregar();
   };
   for (const b of document.querySelectorAll('.b-del-vist')) b.onclick = async () => {
@@ -934,6 +943,7 @@ function telaFicha(cpf) {
     c.vistorias = c.vistorias.filter(v => v.id !== b.dataset.id);
     sujos.add(c.cpf);
     await salvar();
+    aviso('Vistoria excluída.');
     recarregar();
   };
   window.scrollTo(0, 0);
@@ -1030,7 +1040,7 @@ function telaPendencias() {
   ligarItens(() => { const y = $('.rolavel')?.scrollTop || 0; telaPendencias(); const r = $('.rolavel'); if (r) r.scrollTop = y; });
   for (const b of document.querySelectorAll('.b-ab-concluir')) b.onclick = async () => {
     const ab = db.abordagens[b.dataset.id]; ab.prazo.situacao = 'concluido'; ab.atualizadoEm = new Date().toISOString();
-    sujosAb.add(ab.id); await salvar(); telaPendencias();
+    sujosAb.add(ab.id); await salvar(); aviso('Prazo concluído.'); telaPendencias();
   };
 }
 
@@ -1470,6 +1480,7 @@ function telaDados() {
     db.cfg.assinatura = $('#c-assin').value.trim();
     await salvar();
     msg('#m-cfg', 'Salvo.');
+    aviso('Configurações salvas.');
   };
   $('#b-apagar').onclick = async () => {
     if (confirm('Apagar todos os dados deste aparelho?')) { await apagarTudo(); location.reload(); }
@@ -1483,6 +1494,14 @@ function mostrarCarregando(on) {
   let el = document.getElementById('carregando');
   if (on) { if (!el) { el = document.createElement('div'); el.id = 'carregando'; el.innerHTML = PASSARINHO + '<span>Carregando…</span>'; document.body.append(el); } el.classList.add('ativo'); }
   else if (el) el.classList.remove('ativo');
+}
+// Aviso curto de ação concluída (ex.: "Registro salvo."). Fica fora de #app, sobrevive ao re-render.
+let toastT = null;
+function aviso(texto) {
+  let el = document.getElementById('toast');
+  if (!el) { el = document.createElement('div'); el.id = 'toast'; el.setAttribute('role', 'status'); document.body.append(el); }
+  el.textContent = texto; el.classList.add('ativo');
+  clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('ativo'), 2200);
 }
 let navToken = 0;
 function rotear() {
