@@ -1025,7 +1025,7 @@ function telaPendencias() {
         <select id="p-tipo">${[['', 'Todos os tipos'], ['nc', 'Não conformidades'], ['conferir', 'Conferências'], ['indicio', 'Indícios']]
           .map(([v, t]) => `<option value="${v}" ${v === filtroPend.tipo ? 'selected' : ''}>${t}</option>`).join('')}</select>
       </div>
-      <p class="muted peq" id="cont">${lista.length} pendência(s). Só considera criadores com relatório importado ou vistoria registrada.</p>
+      <p class="muted peq" id="cont">${lista.length} pendência(s). A lista mostra só criadores com relatório importado ou com vistoria registrada.</p>
     </div>
     <div class="rolavel card" style="padding:0 14px">
       ${cardPrazos()}
@@ -1055,11 +1055,11 @@ function telaVinculos() {
       </tbody></table></div>`}</div>`;
   };
   app.innerHTML = `<div class="card"><h1>Vínculos de cadastro</h1>
-    <p class="muted peq">Dados repetidos entre criadores podem indicar associação ou terceiro operando o SISPASS (a senha é pessoal: IN SEMA 04/2022, art. 15, §1º; associação só com procuração específica: IN IBAMA 10/2011, art. 60) ou mais de um criador por residência (art. 11, §2º). Considera só relatórios importados, inclusive e-mails e telefones antigos das alterações de cadastro.</p></div>
-    ${bloco('email', 'E-mails compartilhados', 'Sinal forte: o mesmo e-mail em cadastros diferentes.')}
-    ${bloco('fone', 'Telefones compartilhados', 'Comparação pelos 8 últimos dígitos.')}
-    ${bloco('endereco', 'Endereços compartilhados', 'Pela planilha de criadores; formatos diferentes do mesmo endereço podem não ser detectados.')}
-    ${bloco('ip', 'IPs de acesso compartilhados', 'Sinal fraco: operadoras de internet compartilham IP entre clientes.')}`;
+    <p class="muted peq">O mesmo dado em criadores diferentes pode indicar duas situações. Uma associação ou um terceiro opera o SISPASS (a senha é pessoal: IN SEMA 04/2022, art. 15, §1º; a associação precisa de procuração específica: IN IBAMA 10/2011, art. 60). Ou mais de um criador mora na mesma casa (art. 11, §2º). A tela usa só relatórios importados. Inclui e-mails e telefones antigos das alterações de cadastro.</p></div>
+    ${bloco('email', 'E-mails compartilhados', 'Sinal forte. O mesmo e-mail aparece em cadastros diferentes.')}
+    ${bloco('fone', 'Telefones compartilhados', 'O app compara os 8 últimos dígitos.')}
+    ${bloco('endereco', 'Endereços compartilhados', 'Vem da planilha de criadores. O app pode não detectar grafias diferentes do mesmo endereço.')}
+    ${bloco('ip', 'IPs de acesso compartilhados', 'Sinal fraco. As operadoras de internet compartilham o mesmo IP entre clientes.')}`;
 }
 
 
