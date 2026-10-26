@@ -57,6 +57,7 @@ function termoApreensao(ab, cfg) {
       <tr><td class="doc-assin"><span class="doc-rot">Assinatura:</span></td>${campo('Fração:', ag.fracao)}</tr></table>
     <table class="doc-grade"><tr><td><b>Destinação do material apreendido quando não for nomeado Fiel Depositário:</b><br>
       ${DESTINOS.map(d => `${marca(a.destinacao === d)} ${d}`).join('&nbsp;&nbsp;')}</td></tr></table>
+    <p class="doc-texto" style="font-size:8pt">Fundamentos: Lei 9.605/1998, arts. 25 e 72, IV; Decreto 6.514/2008, arts. 101, 102 e 105 a 107; IN SEMA 04/2022, arts. 62 e 64; Resolução CONAMA 457/2013 (guarda/depósito). Código Civil, arts. 640 e 652 (fiel depositário).</p>
     <div class="doc-vias">1ª via – Processo | 2ª via – Autuado | 3ª via – Depósito</div>
   </div>`;
 }

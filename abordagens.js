@@ -132,7 +132,7 @@ function telaAbordagem(id) {
     <div class="card"><h2>Aves</h2>
       <div id="ab-aves">${(ab.aves || []).map(linhaAve).join('')}</div>
       <button class="sec" id="ab-add-ave" type="button">+ Ave</button>
-      <p class="muted peq">Uma linha por espécie e situação (ex.: 3 trinca-ferros sem anilha, vivos, apreendidos). O app identifica Anexo e ameaça pela espécie.</p>
+      <p class="muted peq">Use uma linha por espécie e situação. Ex.: 3 trinca-ferros sem anilha, vivos, apreendidos. O app identifica o Anexo e a ameaça pela espécie.</p>
     </div>
 
     <div class="card"><h2>Petrechos</h2>
@@ -153,7 +153,7 @@ function telaAbordagem(id) {
 
     <div class="card"><h2>Relato</h2>
       <div class="frases">${FRASES_AB.map(f => `<button class="sec ab-frase" type="button">${esc(f)}</button>`).join('')}</div>
-      <textarea id="ab-relato" data-k="relato" rows="6" placeholder="Clique nas frases acima e complete digitando">${esc(ab.relato || '')}</textarea>
+      <textarea id="ab-relato" data-k="relato" rows="6" placeholder="Toque nas frases acima e complete o texto">${esc(ab.relato || '')}</textarea>
     </div>
 
     <div class="card"><h2>Documentos oficiais (impressão)</h2>

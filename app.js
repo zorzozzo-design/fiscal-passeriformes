@@ -593,7 +593,7 @@ function cardMensagens(c, e) {
       <a class="btn sec" id="m-whats" target="_blank" rel="noopener noreferrer" href="#">WhatsApp</a>
       <a class="btn sec" id="m-email" href="#">E-mail</a>
     </div>
-    ${db.cfg.assinatura ? '' : '<p class="muted peq">Configure a assinatura das mensagens em Dados, item 4.</p>'}
+    ${db.cfg.assinatura ? '' : '<p class="muted peq">Configure a sua assinatura em Dados, item 4.</p>'}
   </div>`;
 }
 function ligarMensagens(c, e) {
@@ -675,7 +675,7 @@ function formVistoria(c, e) {
       ${campo.map(i => `<div class="conf"><b>${esc(i.titulo)}</b><div class="peq muted">${esc(i.texto)}</div>
         <select class="v-item" data-id="${esc(i.id)}"><option value="ok">Verificado, regular</option><option value="irregular">Irregular</option><option value="">Não conferido</option></select></div>`).join('')}` : ''}
     <h2 style="margin-top:12px">Infração grave constatada (art. 62, §2º)</h2>
-    <p class="muted peq">Se marcar, o app gera o texto de suspensão da licença para o SISPASS.</p>
+    <p class="muted peq">Ao marcar, o app gera o texto de suspensão da licença para o SISPASS.</p>
     ${GRAVES.map(([k, t]) => `<label class="chk"><input type="checkbox" class="v-grave" value="${k}"> ${k}: ${esc(t)}</label>`).join('')}
     <h2 style="margin-top:12px">Notificação (art. 64)</h2>
     <label class="chk"><input type="checkbox" id="v-notif"> Criador notificado a regularizar no prazo</label>
@@ -686,7 +686,7 @@ function formVistoria(c, e) {
     </div>
     <label for="v-obs">Observações</label>
     <div class="frases">${FRASES.map(f => `<button class="sec chip-txt" type="button">${esc(f)}</button>`).join('')}</div>
-    <textarea id="v-obs" rows="5" placeholder="Clique nas frases acima e complete digitando"></textarea>
+    <textarea id="v-obs" rows="5" placeholder="Toque nas frases acima e complete o texto"></textarea>
     <div class="linha"><button class="sec" id="v-obs-copiar" type="button">Copiar</button>
       <a class="btn sec" id="v-obs-whats" target="_blank" rel="noopener noreferrer" href="https://wa.me/">WhatsApp</a></div>
     <p><button id="b-vistoria" type="button">Salvar vistoria</button> <span id="m-vist" class="msg"></span></p>
@@ -825,7 +825,7 @@ function telaFicha(cpf) {
     ['ocorr', 'Ocorrências', r ? r.ocorrencias.length : '', !r ? semRel : card('Fugas, roubos/furtos e óbitos', tabela(r.ocorrencias))
       + card('Óbitos e idade da ave', tabelaObitos(obitosDaBase().filter(o => o.cpf === c.cpf)))],
     ['hist', 'Histórico', r ? (c.rel.secoes['Histórico de Operações'] || []).length : '',
-      (c.obs ? card('Observações', `<p style="white-space:pre-wrap">${esc(c.obs)}</p><p class="muted peq">Editável na coluna à esquerda.</p>`) : '')
+      (c.obs ? card('Observações', `<p style="white-space:pre-wrap">${esc(c.obs)}</p><p class="muted peq">Edite este texto na coluna à esquerda.</p>`) : '')
       + (!r ? (c.obs ? '' : semRel) : card('Histórico de operações', tabela(c.rel.secoes['Histórico de Operações']))
       + card('Outras seções do relatório', outras.map(([t, rows]) => `<details><summary>${esc(t)} <span class="muted peq">(${rows.length})</span></summary>${tabela(rows)}</details>`).join('')))],
   ];

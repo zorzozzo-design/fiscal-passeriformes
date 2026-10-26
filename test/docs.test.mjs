@@ -36,7 +36,7 @@ test('termo de apreensão e fiel depositário', () => {
   const t = D.termoApreensao(ab, cfg);
   for (const x of ['TERMO DE APREENSÃO E FIEL DEPOSITÁRIO', 'Beltrano da Silva', '529.982.247-25', 'BA nº', '2026/555',
     'cardeal-amarelo', 'gaiola', 'FIEL DEPOSITÁRIO', 'Art. 640', '652', 'Fulano Guarda', 'DADOS DO AGENTE', 'Sd PM Fulano de Tal',
-    '( X ) Recolhimento (CETAS/CRAF-LN)', '1ª via']) assert.ok(t.includes(x), 'faltou: ' + x);
+    '( X ) Recolhimento (CETAS/CRAF-LN)', 'Decreto 6.514/2008, arts. 101, 102 e 105 a 107', '1ª via']) assert.ok(t.includes(x), 'faltou: ' + x);
   assert.ok(!t.includes('undefined'));
 });
 
