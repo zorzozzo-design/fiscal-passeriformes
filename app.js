@@ -104,8 +104,8 @@ async function telaSenha() {
   const existe = meta || antigo;
   app.innerHTML = `<div class="card centro">
     <h1>${existe ? 'Desbloquear' : 'Criar senha'}</h1>
-    <p class="muted peq">${existe ? 'Os dados ficam criptografados neste aparelho.'
-      : 'Os dados ficam só neste aparelho, criptografados com esta senha. Sem ela não há como recuperar.'}</p>
+    <p class="muted peq">${existe ? 'Seus dados estão criptografados neste aparelho.'
+      : 'Seus dados ficam só neste aparelho. Esta senha protege os dados. Sem a senha, você não recupera os dados.'}</p>
     <form id="f">
       <label for="s1">Senha</label><input id="s1" type="password" autocomplete="current-password" required minlength="6">
       ${existe ? '' : '<label for="s2">Repita a senha</label><input id="s2" type="password" required minlength="6">'}
@@ -1373,15 +1373,15 @@ function telaDados() {
       <p id="m-rel" class="msg"></p></div>
 
     <div class="card"><h2>3. Backup, planilha e sincronização</h2>
-      <p class="muted peq"><b>Planilha (.xlsx):</b> criadores, plantel, fugas/roubos/óbitos e histórico, legível no Excel. Guarda também os relatórios completos na aba _relatorios, para recuperar tudo importando a planilha no item 1. Atenção: a planilha não é criptografada.</p>
+      <p class="muted peq"><b>Planilha (.xlsx):</b> a planilha abre no Excel. Contém criadores, plantel, fugas, roubos, óbitos e histórico. A aba _relatorios guarda os relatórios completos. Para recuperar tudo, importe esta planilha no item 1. Atenção: a planilha não é criptografada.</p>
       <div class="linha"><button id="b-xlsx" type="button">Exportar planilha</button></div>
       <p id="m-xlsx" class="msg"></p>
-      <p class="muted peq"><b>Backup criptografado (.json):</b> o backup sai criptografado com a sua senha atual. No outro aparelho, importe o arquivo: os dados são mesclados (vale o relatório e a anotação mais recentes de cada criador).</p>
+      <p class="muted peq"><b>Backup criptografado (.json):</b> a sua senha protege o backup. No outro aparelho, importe o arquivo. O app mescla os dados. Para cada criador, o app mantém o relatório e a anotação mais recentes.</p>
       <div class="linha"><button id="b-nuvem" type="button">Enviar para a nuvem</button>
         <button class="sec" id="b-exp" type="button">Baixar backup</button>
         <label class="btn sec" style="margin:0">Importar backup<input type="file" id="f-bak" accept=".json,application/json" hidden></label></div>
       <p id="m-bak" class="msg"></p>
-      <p class="muted peq"><b>Google Drive / OneDrive:</b> em "Enviar para a nuvem", no celular, escolha o Drive ou o OneDrive no menu de compartilhar. No computador, use "Baixar backup" e salve o arquivo na pasta do Drive/OneDrive. Para trazer de volta, toque em "Importar backup" e escolha o arquivo no Drive/OneDrive (ou na pasta sincronizada). O app precisa dos dados no aparelho para funcionar na rua, sem internet: a nuvem é backup e serve para passar de um aparelho para outro.</p></div>
+      <p class="muted peq"><b>Google Drive / OneDrive:</b> no celular, toque em "Enviar para a nuvem" e escolha o Drive ou o OneDrive. No computador, toque em "Baixar backup" e salve o arquivo na pasta do Drive ou do OneDrive. Para trazer de volta, toque em "Importar backup" e escolha o arquivo. O app guarda os dados no aparelho e funciona na rua, sem internet. A nuvem guarda o backup e passa os dados entre aparelhos.</p></div>
 
     <div class="card"><h2>4. Alertas, indícios e assinatura</h2>
       <div class="grade">
