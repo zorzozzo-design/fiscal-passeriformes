@@ -154,7 +154,7 @@ nav a { white-space: nowrap; }
 .tela-lista { display: flex; flex-direction: column; height: calc(100dvh - var(--topo-h, 56px) - 32px); }
 .lista-topo { flex: 0 0 auto; }
 .lista-topo #cont { margin: 6px 2px 10px; }
-.tela-lista #lista { flex: 1 1 auto; overflow-y: auto; margin: 0; -webkit-overflow-scrolling: touch; }
+.tela-lista #lista, .tela-lista .rolavel { flex: 1 1 auto; overflow-y: auto; margin: 0; -webkit-overflow-scrolling: touch; }
 
 /* Gráficos e grafo */
 .filtros-graf { gap: 8px; align-items: flex-start; }

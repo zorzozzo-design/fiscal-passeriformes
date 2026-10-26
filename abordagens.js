@@ -46,15 +46,20 @@ function itemAbordagem(ab) {
 function telaAbordagens() {
   const todas = Object.values(db.abordagens).sort((a, b) => dataAb(b).localeCompare(dataAb(a)));
   const abertas = todas.filter(a => a.status === 'aberta').length;
-  app.innerHTML = `<div class="card"><h1>Abordagens</h1>
-      <p class="muted peq">Denúncias recebidas e fiscalizações em campo de qualquer pessoa, com ou sem cadastro no SISPASS.</p>
-      <div class="linha"><button id="ab-nova-den" type="button">+ Nova denúncia</button><button class="sec" id="ab-nova" type="button">+ Abordagem sem denúncia</button></div></div>
-    <div class="filtros">
-      <input id="ab-q" type="search" placeholder="Nome, CPF, endereço, protocolo ou ave" value="${esc(filtroAb.q)}">
-      <select id="ab-st"><option value="">Todas (${todas.length})</option>
-        ${Object.entries(STATUS_AB).map(([k, t]) => `<option value="${k}" ${k === filtroAb.status ? 'selected' : ''}>${t}${k === 'aberta' ? ` (${abertas})` : ''}</option>`).join('')}</select>
+  app.innerHTML = `<div class="tela-lista">
+    <div class="lista-topo">
+      <div class="card"><h1>Abordagens</h1>
+        <p class="muted peq">Denúncias recebidas e fiscalizações em campo de qualquer pessoa, com ou sem cadastro no SISPASS.</p>
+        <div class="linha"><button id="ab-nova-den" type="button">+ Nova denúncia</button><button class="sec" id="ab-nova" type="button">+ Abordagem sem denúncia</button></div></div>
+      <div class="filtros">
+        <input id="ab-q" type="search" placeholder="Nome, CPF, endereço, protocolo ou ave" value="${esc(filtroAb.q)}">
+        <select id="ab-st"><option value="">Todas (${todas.length})</option>
+          ${Object.entries(STATUS_AB).map(([k, t]) => `<option value="${k}" ${k === filtroAb.status ? 'selected' : ''}>${t}${k === 'aberta' ? ` (${abertas})` : ''}</option>`).join('')}</select>
+      </div>
     </div>
-    <ul id="ab-lista" class="lista card" style="padding:0"></ul>`;
+    <ul id="ab-lista" class="lista rolavel card" style="padding:0"></ul>
+  </div>`;
+  document.documentElement.style.setProperty('--topo-h', $('.topo').offsetHeight + 'px');
   const desenhar = () => {
     const q = norm(filtroAb.q);
     const vis = todas.filter(a => (!filtroAb.status || a.status === filtroAb.status)

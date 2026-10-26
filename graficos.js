@@ -94,7 +94,8 @@ function telaGraficos() {
   const regs = registrosGraficos();
   const cidades = [...new Set(regs.map(r => r.cidade))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
   const especies = [...new Set(regs.flatMap(r => r.aves.map(a => a.especie)))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
-  app.innerHTML = `<div class="card"><h1>Gráficos</h1>
+  app.innerHTML = `<div class="tela-lista">
+    <div class="lista-topo"><div class="card"><h1>Gráficos</h1>
       <p class="muted peq">Filtros combináveis. Aves e idades só contam criadores com relatório importado.</p>
       <div class="linha filtros-graf">
         ${multiSelect('municipios', 'Município', cidades, filtroGraf.municipios)}
@@ -103,7 +104,8 @@ function telaGraficos() {
         ${multiSelect('situacoes', 'Situação', SITUACOES, filtroGraf.situacoes)}
         <button class="sec" id="g-limpar" type="button">Limpar</button>
       </div>
-      <p id="g-tot" class="peq"></p></div>
+      <p id="g-tot" class="peq"></p></div></div>
+    <div class="rolavel">
     <div class="graf-grade">
       ${[['g1', 'Criadores por município'], ['g2', 'Aves ativas por espécie (top 15)'], ['g3', 'Aves por faixa de idade'],
          ['g4', 'Situação das licenças'], ['g5', 'Fiscalizados x não fiscalizados'], ['g6', 'Sexo dos titulares'],
@@ -113,7 +115,9 @@ function telaGraficos() {
       <p class="muted peq">Busque um criador para ver com quem ele negociou aves. Clique num nó para abrir a ficha.</p>
       <input id="g-grafo-busca" type="search" list="g-crialista" placeholder="Nome ou CPF do criador">
       <datalist id="g-crialista">${Object.values(db.criadores).slice(0, 2000).map(c => `<option value="${esc(c.nome)} — ${esc(fmtCpf(c.cpf))}">`).join('')}</datalist>
-      <p class="muted peq">Ou abra a ficha de um criador e use a aba Vínculos.</p></div>`;
+      <p class="muted peq">Ou abra a ficha de um criador e use a aba Vínculos.</p></div>
+    </div></div>`;
+  document.documentElement.style.setProperty('--topo-h', $('.topo').offsetHeight + 'px');
   for (const el of document.querySelectorAll('[data-ms]')) el.onchange = () => {
     const id = el.dataset.ms, v = el.value, arr = filtroGraf[id];
     if (el.checked) arr.push(v); else arr.splice(arr.indexOf(v), 1);

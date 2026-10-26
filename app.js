@@ -969,23 +969,30 @@ function telaPendencias() {
     .filter(({ i }) => !filtroPend.tipo || i.tipo === filtroPend.tipo)
     .sort((a, b) => (Parser.parseData(b.i.data) || 0) - (Parser.parseData(a.i.data) || 0));
   const porDestino = d => todos.reduce((n, c) => n + estado(c).abertos.filter(i => i.destino === d).length, 0);
-  app.innerHTML = `<div class="card"><h1>Pendências</h1>
-      <div class="sits">${DESTINOS.map(d => `<div class="sit ${porDestino(d) ? 'ruim' : 'bom'}"><span>${esc(DESTINO_TXT[d])}</span>${porDestino(d)}</div>`).join('')}</div></div>
-    ${cardPrazos()}
-    <div class="filtros">
-      <select id="p-dest">${[['acoes', 'SISPASS, SEMA e notificações'], ['todas', 'Todas'], ...DESTINOS.map(d => [d, DESTINO_TXT[d]])]
-        .map(([v, t]) => `<option value="${v}" ${v === filtroPend.destino ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>
-      <select id="p-cid"><option value="">Todas as cidades</option>${cidades.map(c => `<option ${c === filtroPend.cidade ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
-      <select id="p-tipo">${[['', 'Todos os tipos'], ['nc', 'Não conformidades'], ['conferir', 'Conferências'], ['indicio', 'Indícios']]
-        .map(([v, t]) => `<option value="${v}" ${v === filtroPend.tipo ? 'selected' : ''}>${t}</option>`).join('')}</select>
+  app.innerHTML = `<div class="tela-lista">
+    <div class="lista-topo">
+      <div class="card"><h1>Pendências</h1>
+        <div class="sits">${DESTINOS.map(d => `<div class="sit ${porDestino(d) ? 'ruim' : 'bom'}"><span>${esc(DESTINO_TXT[d])}</span>${porDestino(d)}</div>`).join('')}</div></div>
+      <div class="filtros">
+        <select id="p-dest">${[['acoes', 'SISPASS, SEMA e notificações'], ['todas', 'Todas'], ...DESTINOS.map(d => [d, DESTINO_TXT[d]])]
+          .map(([v, t]) => `<option value="${v}" ${v === filtroPend.destino ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>
+        <select id="p-cid"><option value="">Todas as cidades</option>${cidades.map(c => `<option ${c === filtroPend.cidade ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+        <select id="p-tipo">${[['', 'Todos os tipos'], ['nc', 'Não conformidades'], ['conferir', 'Conferências'], ['indicio', 'Indícios']]
+          .map(([v, t]) => `<option value="${v}" ${v === filtroPend.tipo ? 'selected' : ''}>${t}</option>`).join('')}</select>
+      </div>
+      <p class="muted peq" id="cont">${lista.length} pendência(s). Só considera criadores com relatório importado ou vistoria registrada.</p>
     </div>
-    <p class="muted peq">${lista.length} pendência(s). Só considera criadores com relatório importado ou vistoria registrada.</p>
-    <div class="card">${lista.slice(0, 300).map(({ c, i }) => htmlItem(c, i, true)).join('') || '<p class="muted">Nenhuma pendência.</p>'}
-      ${lista.length > 300 ? '<p class="muted peq">Mostrando as 300 mais recentes. Use os filtros.</p>' : ''}</div>`;
+    <div class="rolavel card" style="padding:0 14px">
+      ${cardPrazos()}
+      ${lista.slice(0, 300).map(({ c, i }) => htmlItem(c, i, true)).join('') || '<p class="muted">Nenhuma pendência.</p>'}
+      ${lista.length > 300 ? '<p class="muted peq">Mostrando as 300 mais recentes. Use os filtros.</p>' : ''}
+    </div>
+  </div>`;
+  document.documentElement.style.setProperty('--topo-h', $('.topo').offsetHeight + 'px');
   $('#p-dest').onchange = ev => { filtroPend.destino = ev.target.value; telaPendencias(); };
   $('#p-cid').onchange = ev => { filtroPend.cidade = ev.target.value; telaPendencias(); };
   $('#p-tipo').onchange = ev => { filtroPend.tipo = ev.target.value; telaPendencias(); };
-  ligarItens(() => { const y = window.scrollY; telaPendencias(); window.scrollTo(0, y); });
+  ligarItens(() => { const y = $('.rolavel')?.scrollTop || 0; telaPendencias(); const r = $('.rolavel'); if (r) r.scrollTop = y; });
   for (const b of document.querySelectorAll('.b-ab-concluir')) b.onclick = async () => {
     const ab = db.abordagens[b.dataset.id]; ab.prazo.situacao = 'concluido'; ab.atualizadoEm = new Date().toISOString();
     sujosAb.add(ab.id); await salvar(); telaPendencias();
@@ -1086,9 +1093,10 @@ function telaPainel() {
   const sexoConf = s => todos.filter(c => c.sexo === s).length;
   const grupos = indices().grupos;
 
-  app.innerHTML = `<div class="card"><h1>Painel</h1>
-    <p class="muted peq">Período de licença ${per.rotulo}. Números de aves, movimentação e pendências consideram só os ${comRel.length} de ${todos.length} criadores com relatório importado${pct(comRel.length, todos.length)}.</p></div>
-
+  app.innerHTML = `<div class="tela-lista">
+    <div class="lista-topo"><div class="card"><h1>Painel</h1>
+      <p class="muted peq">Período de licença ${per.rotulo}. Números de aves, movimentação e pendências consideram só os ${comRel.length} de ${todos.length} criadores com relatório importado${pct(comRel.length, todos.length)}.</p></div></div>
+    <div class="rolavel">
     <h2 class="sec-tit">Criadores e fiscalização</h2>
     <div class="kpis">
       ${card('Criadores na base', todos.length, '#/?f=')}
@@ -1146,7 +1154,9 @@ function telaPainel() {
         href: `#/?f=&q=${encodeURIComponent(nome)}` })))}</div>
 
     <div class="card"><h2>Vistorias por mês</h2>
-      ${barras(meses.map(m => ({ rotulo: `${m.slice(5)}/${m.slice(0, 4)}`, valor: vistMes[m] })))}</div>`;
+      ${barras(meses.map(m => ({ rotulo: `${m.slice(5)}/${m.slice(0, 4)}`, valor: vistMes[m] })))}</div>
+    </div></div>`;
+  document.documentElement.style.setProperty('--topo-h', $('.topo').offsetHeight + 'px');
 }
 
 // ---------- importação ----------
