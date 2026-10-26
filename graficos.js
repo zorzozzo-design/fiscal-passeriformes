@@ -96,7 +96,7 @@ function telaGraficos() {
   const especies = [...new Set(regs.flatMap(r => r.aves.map(a => a.especie)))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
   app.innerHTML = `<div class="tela-lista">
     <div class="lista-topo"><div class="card"><h1>Gráficos</h1>
-      <p class="muted peq">Filtros combináveis. Aves e idades só contam criadores com relatório importado.</p>
+      <p class="muted peq">Você pode combinar os filtros. Os gráficos de aves e de idade usam só criadores com relatório importado.</p>
       <div class="linha filtros-graf">
         ${multiSelect('municipios', 'Município', cidades, filtroGraf.municipios)}
         ${multiSelect('especies', 'Ave', especies, filtroGraf.especies)}
@@ -112,7 +112,7 @@ function telaGraficos() {
          ['g7', 'Aves ameaçadas por município']].map(([id, t]) => `<div class="card graf-card"><h2>${t}</h2><div class="graf-box"><canvas id="${id}"></canvas></div></div>`).join('')}
     </div>
     <div class="card"><h2>Grafo de vínculos</h2>
-      <p class="muted peq">Busque um criador para ver com quem ele negociou aves. Clique num nó para abrir a ficha.</p>
+      <p class="muted peq">Busque um criador para ver com quem ele negociou aves. Toque num nó para abrir a ficha.</p>
       <input id="g-grafo-busca" type="search" placeholder="Nome ou CPF do criador, e Enter">
       <p class="muted peq">Digite o nome ou o CPF e tecle Enter. Ou abra a ficha de um criador e use a aba Vínculos.</p></div>
     </div></div>`;
@@ -216,7 +216,7 @@ function cardGrafo(cpf) {
         <div class="ms-op">${anos.map(a => `<label class="chk"><input type="checkbox" class="grafo-ano" value="${a}"> ${a}</label>`).join('')}</div></details>` : ''}
     </div>
     <div id="grafo-ficha" class="grafo-box"></div>
-    <p class="muted peq">Vermelho: criador atual. Verde: criador na base (clique abre a ficha). Cinza: fora da base (clique busca pelo nome para você conferir e importar). O número abaixo do nome é o cadastro no SISPASS, quando conhecido. Seta: sentido da transferência. Sem ano marcado, mostra todos.</p>`}</div>`;
+    <p class="muted peq">Vermelho: o criador atual. Verde: criador na base, toque para abrir a ficha. Cinza: fora da base, toque para buscar pelo nome e conferir ou importar. O número abaixo do nome é o cadastro no SISPASS, quando conhecido. A seta mostra o sentido da transferência. Sem ano marcado, o grafo mostra todos.</p>`}</div>`;
 }
 
 function telaGrafo(cpf) {

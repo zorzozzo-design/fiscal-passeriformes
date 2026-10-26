@@ -671,7 +671,7 @@ function formVistoria(c, e) {
     </div>
     <label for="v-end">Endereço conferido</label><input id="v-end" value="${esc(c.enderecoAtual || c.endereco)}">
     ${formConferencia(c)}
-    ${campo.length ? `<h2 style="margin-top:12px">Itens a conferir (${campo.length})</h2><p class="muted peq">Já marcados como verificados. Mude só o que constatou irregular ou não conferiu.</p>
+    ${campo.length ? `<h2 style="margin-top:12px">Itens a conferir (${campo.length})</h2><p class="muted peq">O app já marca estes itens como verificados. Mude só o que você constatou irregular ou não conferiu.</p>
       ${campo.map(i => `<div class="conf"><b>${esc(i.titulo)}</b><div class="peq muted">${esc(i.texto)}</div>
         <select class="v-item" data-id="${esc(i.id)}"><option value="ok">Verificado, regular</option><option value="irregular">Irregular</option><option value="">Não conferido</option></select></div>`).join('')}` : ''}
     <h2 style="margin-top:12px">Infração grave constatada (art. 62, §2º)</h2>
@@ -1174,7 +1174,7 @@ function telaPainel() {
 
   app.innerHTML = `<div class="tela-lista">
     <div class="lista-topo"><div class="card"><h1>Painel</h1>
-      <p class="muted peq">Período de licença ${per.rotulo}. Números de aves, movimentação e pendências consideram só os ${comRel.length} de ${todos.length} criadores com relatório importado${pct(comRel.length, todos.length)}.</p></div></div>
+      <p class="muted peq">Período de licença ${per.rotulo}. Os números de aves, movimentação e pendências usam só os ${comRel.length} de ${todos.length} criadores com relatório importado${pct(comRel.length, todos.length)}.</p></div></div>
     <div class="rolavel">
     <h2 class="sec-tit">Criadores e fiscalização</h2>
     <div class="kpis">
@@ -1216,7 +1216,7 @@ function telaPainel() {
 
     <div class="card"><h2>Fiscalização por município (${per.rotulo})</h2>
       ${barras(cidades.map(cid => { const cs = todos.filter(c => c.cidade === cid); return { rotulo: cid, valor: cs.filter(c => E.get(c.cpf).fiscalizado).length, total: cs.length,
-        href: `#/?f=naofisc&cidade=${encodeURIComponent(cid)}` }; }), { nota: 'Barra escura: fiscalizados. Clique para ver os não fiscalizados da cidade.' })}</div>
+        href: `#/?f=naofisc&cidade=${encodeURIComponent(cid)}` }; }), { nota: 'A barra escura mostra os fiscalizados. Toque para ver os não fiscalizados da cidade.' })}</div>
 
     <div class="card"><h2>Pendências em aberto por tipo</h2>
       ${barras(Object.entries(pend).sort((a, b) => b[1] - a[1]).map(([k, n]) => ({ rotulo: ROTULO_ITEM[k] || k, valor: n, href: `#/?f=item:${encodeURIComponent(k)}` })))}</div>
@@ -1225,7 +1225,7 @@ function telaPainel() {
       <div class="tabela"><table><thead><tr><th>Período</th>${MOVS.map(m => `<th>${m}</th>`).join('')}</tr></thead><tbody>
       ${ultimosPer.map(p => `<tr><td>${p}</td>${MOVS.map(m => `<td>${mov[p]?.[m] || 0}</td>`).join('')}</tr>`).join('')}
       </tbody></table></div>
-      <p class="muted peq">Transferências confirmadas e eventos do histórico dos relatórios importados. Uma transferência entre dois criadores da base aparece como enviada em um e recebida no outro.</p></div>
+      <p class="muted peq">Usa as transferências confirmadas e os eventos do histórico dos relatórios importados. Uma transferência entre dois criadores da base aparece como enviada em um e recebida no outro.</p></div>
 
     <div class="card"><h2>Espécies com mais aves ativas</h2>
       ${barras(Object.entries(especies).sort((a, b) => b[1].n - a[1].n).slice(0, 10).map(([nome, x]) => ({ rotulo: nome, valor: x.n,
