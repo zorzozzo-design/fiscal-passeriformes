@@ -1544,18 +1544,15 @@ function telaDados() {
 
 // ---------- roteamento e bloqueio ----------
 // Passarinho voando enquanto a tela monta (telas que varrem toda a base podem demorar).
-// Passarinho de perfil, voando para a direita; a asa (cg-asa) bate.
-const PASSARINHO = '<svg viewBox="0 0 64 44" aria-hidden="true"><g fill="currentColor">'
-  + '<path d="M6 24 L18 20 L16 30 Z"/>' // cauda à esquerda
-  + '<ellipse cx="30" cy="24" rx="15" ry="7"/>' // corpo
-  + '<circle cx="45" cy="20" r="6"/>' // cabeça
-  + '<path d="M51 19 l8 -2 -6 5 z"/>' // bico
-  + '<circle cx="47" cy="18.5" r="1.3" fill="#fff"/>' // olho
-  + '<path class="cg-asa" d="M30 22 L22 4 L42 16 Z"/>' // asa que bate
-  + '</g></svg>';
+// Passarinho amarelo da logo; a asa (cg-asa) bate enquanto a página carrega.
+const PASSARINHO = '<svg viewBox="90 150 350 250" aria-hidden="true">'
+  + '<path d="M150 300c0-80 60-140 140-140 30 0 52 10 70 26l62-14-38 48c4 14 6 28 6 44 0 80-64 136-150 136h-60l-60 40 20-70c-30-18-50-42-50-70z" fill="#f6c343"/>'
+  + '<path class="cg-asa" d="M250 252 Q300 150 345 250 Q300 230 250 252 Z" fill="#e0a82e"/>'
+  + '<circle cx="318" cy="216" r="16" fill="#0b2a1c"/>'
+  + '</svg>';
 function mostrarCarregando(on) {
   let el = document.getElementById('carregando');
-  if (on) { if (!el) { el = document.createElement('div'); el.id = 'carregando'; el.innerHTML = `<div class="cg-voo">${PASSARINHO}</div><span>Carregando…</span>`; document.body.append(el); } el.classList.add('ativo'); }
+  if (on) { if (!el) { el = document.createElement('div'); el.id = 'carregando'; el.innerHTML = `<div class="cg-cena"><div class="cg-voo">${PASSARINHO}</div></div><span>Carregando…</span>`; document.body.append(el); } el.classList.add('ativo'); }
   else if (el) el.classList.remove('ativo');
 }
 // Aviso curto de ação concluída (ex.: "Registro salvo."). Fica fora de #app, sobrevive ao re-render.
