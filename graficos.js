@@ -113,9 +113,8 @@ function telaGraficos() {
     </div>
     <div class="card"><h2>Grafo de vínculos</h2>
       <p class="muted peq">Busque um criador para ver com quem ele negociou aves. Clique num nó para abrir a ficha.</p>
-      <input id="g-grafo-busca" type="search" list="g-crialista" placeholder="Nome ou CPF do criador">
-      <datalist id="g-crialista">${Object.values(db.criadores).slice(0, 2000).map(c => `<option value="${esc(c.nome)} — ${esc(fmtCpf(c.cpf))}">`).join('')}</datalist>
-      <p class="muted peq">Ou abra a ficha de um criador e use a aba Vínculos.</p></div>
+      <input id="g-grafo-busca" type="search" placeholder="Nome ou CPF do criador, e Enter">
+      <p class="muted peq">Digite o nome ou o CPF e tecle Enter. Ou abra a ficha de um criador e use a aba Vínculos.</p></div>
     </div></div>`;
   document.documentElement.style.setProperty('--topo-h', $('.topo').offsetHeight + 'px');
   for (const el of document.querySelectorAll('[data-ms]')) el.onchange = () => {

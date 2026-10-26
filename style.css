@@ -183,3 +183,14 @@ nav a.ativo:hover { background: var(--pri); color: var(--pri-txt); }
 #btn-bloquear { transition: background .12s, color .12s; }
 #btn-bloquear:hover { background: var(--bg); }
 @media (max-width: 420px) { nav a { padding: 6px 8px; } }
+
+/* Indicador de carregando: passarinho voando. */
+#carregando { position: fixed; inset: 0; z-index: 50; display: none; place-items: center; align-content: center; gap: 10px;
+  background: color-mix(in srgb, var(--bg) 72%, transparent); color: var(--pri); }
+#carregando.ativo { display: grid; }
+#carregando svg { width: 76px; height: 56px; animation: cg-voar 1.1s ease-in-out infinite; }
+#carregando span { font-weight: 600; color: var(--muted); }
+#carregando .asa { transform-origin: 26px 24px; animation: cg-asa .32s ease-in-out infinite; }
+@keyframes cg-voar { 0%,100% { transform: translateY(5px) } 50% { transform: translateY(-7px) } }
+@keyframes cg-asa { 0%,100% { transform: rotate(0deg) } 50% { transform: rotate(32deg) } }
+@media (prefers-reduced-motion: reduce) { #carregando svg, #carregando .asa { animation: none; } }

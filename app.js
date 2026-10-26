@@ -69,6 +69,8 @@ async function salvar() {
   versao++;
   const lote = [...sujos], loteAb = [...sujosAb];
   sujos.clear(); sujosAb.clear();
+  for (const cpf of lote) revCriador.set(cpf, (revCriador.get(cpf) || 0) + 1); // invalida só os criadores alterados
+  if (idxSujo) { revIdx++; cacheIdx = null; idxSujo = false; } // relatório ou endereço mudou: índices e todos os estados
   const meta = await cifrar(chave, salt, { cfg: db.cfg });
   const regs = await Promise.all(lote.map(async cpf => [cpf, await cifrar(chave, salt, db.criadores[cpf])]));
   const regsAb = await Promise.all(loteAb.map(async id => [id, db.abordagens[id] ? await cifrar(chave, salt, db.abordagens[id]) : null]));
@@ -338,9 +340,13 @@ function telaAnilha(chave) {
 }
 
 // ---------- fiscalização: estado derivado de cada criador ----------
-// Índices da base inteira (nascimento por anilha, endereço, e-mail, telefone e IP compartilhados), refeitos a cada salvamento.
-let versao = 0, cacheIdx = null;
+// Cache granular: cada criador guarda o estado derivado e só recalcula quando ELE muda (revCriador)
+// ou quando os índices da base mudam (revIdx: relatório importado, endereço alterado). Evita recalcular
+// todos os criadores a cada salvamento, que travava com muitos relatórios.
+let versao = 0, cacheIdx = null, revIdx = 0, idxSujo = false;
+const revCriador = new Map();
 const estCache = new Map();
+const chaveEstado = cpf => `${revCriador.get(cpf) || 0}:${revIdx}`;
 const RESULTADO = { regular: 'Regular', irregular: 'Irregular', naoloc: 'Não localizado' };
 const GRAVES = [ // IN SEMA 04/2022, art. 62, §2º
   ['I', 'Abuso de licença'], ['II', 'Obtenção de vantagem pecuniária'], ['III', 'Animais silvestres sem origem legal (aves sem anilha)'],
@@ -354,7 +360,7 @@ function chaveEndereco(c) {
   return /\d/.test(e) ? e : '';
 }
 function indices() {
-  if (cacheIdx?.v === versao) return cacheIdx;
+  if (cacheIdx?.v === revIdx) return cacheIdx;
   const nasc = {}, grupos = { endereco: {}, email: {}, fone: {}, ip: {} };
   const por = (tipo, chave, c) => { if (chave) (grupos[tipo][chave] ||= new Set()).add(c.cpf); };
   for (const c of Object.values(db.criadores)) {
@@ -367,7 +373,7 @@ function indices() {
     for (const r of c.rel.secoes['Acesso ao Sispass'] || []) for (const ip of String(r['Endereco IP Cliente'] || '').split(',')) por('ip', ip.trim(), c);
   }
   for (const g of Object.values(grupos)) for (const k of Object.keys(g)) if (g[k].size < 2) delete g[k];
-  return (cacheIdx = { v: versao, nasc, grupos });
+  return (cacheIdx = { v: revIdx, nasc, grupos });
 }
 function vinculosCadastro(cpf) {
   const { grupos } = indices(), out = {};
@@ -385,7 +391,7 @@ function sexoEstimado(nome) {
 const sexoDe = c => c.sexo ? { valor: c.sexo, estimado: false } : { valor: sexoEstimado(c.nome), estimado: true };
 
 function estado(c) {
-  if (estCache.get(c.cpf)?.v === versao) return estCache.get(c.cpf);
+  if (estCache.get(c.cpf)?.chave === chaveEstado(c.cpf)) return estCache.get(c.cpf);
   const hoje = new Date(), per = Normas.periodo(hoje), ix = indices(), vinc = vinculosCadastro(c.cpf);
   const nomes = cpfs => cpfs.map(x => db.criadores[x]?.nome).filter(Boolean);
   const itens = c.rel ? Normas.verificar(c.rel, { hoje, cfg: db.cfg, nascimentos: ix.nasc, outrosNoEndereco: nomes(vinc.endereco.flatMap(v => v.outros)) }) : [];
@@ -427,7 +433,7 @@ function estado(c) {
     if (i.grupo === 'prazo') i.verificadoEm = vist.filter(v => v.data > i.desde).at(-1)?.data; // vistoria de retorno
     i.aberto = !i.verificadoEm && !i.feito;
   }
-  const e = { v: versao, itens, abertos: itens.filter(i => i.aberto), r: c.rel ? resumo(c.rel, db.cfg) : null,
+  const e = { chave: chaveEstado(c.cpf), itens, abertos: itens.filter(i => i.aberto), r: c.rel ? resumo(c.rel, db.cfg) : null,
     ctf: c.rel ? Normas.situacaoCTF(c.rel) : null, lic, ameacadas: c.rel ? Normas.ameacadasDoPlantel(c.rel) : [],
     ultima: vist[0], vistorias: vist, sexo: sexoDe(c), vinc,
     fiscalizado: vist.some(v => v.resultado !== 'naoloc' && new Date(v.data + 'T12:00') >= per.inicio) };
@@ -888,7 +894,7 @@ function telaFicha(cpf) {
     if ($('#v-notif').checked) v.notificacao = { ciencia: $('#v-notif-ciencia').value || v.data, prazo: Math.max(1, parseInt($('#v-notif-prazo').value) || 15), objeto: $('#v-notif-objeto').value.trim() };
     const conf = Normas.resumoConferencia(avesAtivas(c), v);
     if (v.resultado === 'regular' && (v.irregular.length || v.graves.length || conf.irregular)) v.resultado = 'irregular';
-    if (v.endereco && v.endereco !== c.endereco) c.endereco = v.endereco;
+    if (v.endereco && v.endereco !== c.endereco) { c.endereco = v.endereco; idxSujo = true; }
     (c.vistorias ||= []).push(v);
     sujos.add(c.cpf);
     await salvar();
@@ -1177,6 +1183,7 @@ function importarPlanilha(buf) {
     if (atual) { Object.assign(atual, base); atualizados++; } else { db.criadores[cpf] = { ...base, rel: null, fisc: null }; novos++; }
     sujos.add(cpf);
   }
+  idxSujo = true;
   return `${novos} criador(es) novo(s), ${atualizados} atualizado(s).`;
 }
 
@@ -1193,6 +1200,7 @@ function importarRelatorio(texto) {
     endereco: d.endereco, cidade: cidadeDe(d.municipio), rel: null };
   db.criadores[rel.cpf].rel = { importadoEm: agora(), criador: d, secoes: rel.secoes };
   sujos.add(rel.cpf);
+  idxSujo = true;
   return db.criadores[rel.cpf].nome;
 }
 
@@ -1294,6 +1302,7 @@ function mesclar(outro) {
     if (b.notas && !a.notas) a.notas = b.notas;
     if (JSON.stringify(a) !== antes) { sujos.add(cpf); n++; }
   }
+  if (n) idxSujo = true;
   for (const [id, b] of Object.entries(outro.abordagens || {})) { // vale a versão editada por último
     const a = db.abordagens[id];
     if (!a || (b.atualizadoEm || '') > (a.atualizadoEm || '')) { db.abordagens[id] = b; sujosAb.add(id); n++; }
@@ -1437,27 +1446,39 @@ function telaDados() {
 }
 
 // ---------- roteamento e bloqueio ----------
+// Passarinho voando enquanto a tela monta (telas que varrem toda a base podem demorar).
+const PASSARINHO = '<svg viewBox="0 0 64 48" aria-hidden="true"><g fill="currentColor"><ellipse cx="34" cy="30" rx="13" ry="9"/><circle cx="46" cy="24" r="6"/><circle cx="49" cy="22" r="1.6" fill="#fff"/><path d="M51 24 l7 -2 -5 4 z"/><path class="asa" d="M30 28 C20 10 8 10 2 20 C14 22 22 28 30 32 Z"/></g></svg>';
+function mostrarCarregando(on) {
+  let el = document.getElementById('carregando');
+  if (on) { if (!el) { el = document.createElement('div'); el.id = 'carregando'; el.innerHTML = PASSARINHO + '<span>Carregando…</span>'; document.body.append(el); } el.classList.add('ativo'); }
+  else if (el) el.classList.remove('ativo');
+}
+// Mostra o passarinho, deixa o navegador pintá-lo e só então roda o render pesado.
+function comCarregando(render) {
+  mostrarCarregando(true);
+  requestAnimationFrame(() => requestAnimationFrame(() => { try { render(); } finally { mostrarCarregando(false); } }));
+}
 function rotear() {
   if (!db) return telaSenha();
   marcarNav();
   const h = location.hash;
   if (h.startsWith('#/c/')) return telaFicha(h.slice(4));
   if (h === '#/dados') return telaDados();
-  if (h === '#/idades') return telaIdades();
-  if (h === '#/pendencias') return telaPendencias();
-  if (h === '#/vinculos') return telaVinculos();
-  if (h === '#/painel') return telaPainel();
-  if (h === '#/graficos') return telaGraficos();
+  if (h === '#/idades') return comCarregando(telaIdades);
+  if (h === '#/pendencias') return comCarregando(telaPendencias);
+  if (h === '#/vinculos') return comCarregando(telaVinculos);
+  if (h === '#/painel') return comCarregando(telaPainel);
+  if (h === '#/graficos') return comCarregando(telaGraficos);
   if (h.startsWith('#/grafo/')) return telaGrafo(h.slice(8));
   if (h === '#/abordagens') return telaAbordagens();
   if (h.startsWith('#/ab/')) return telaAbordagem(h.slice(5));
   if (h.startsWith('#/?')) { // atalho vindo do painel: #/?f=filtro&cidade=X
     const q = new URLSearchParams(h.slice(3));
     filtro.status = q.get('f') || ''; filtro.cidade = q.get('cidade') || ''; filtro.q = q.get('q') || ''; rolagem = 0;
-    return telaLista();
+    return comCarregando(telaLista);
   }
   if (h.startsWith('#/anilha/')) return telaAnilha(decodeURIComponent(h.slice(9)));
-  return telaLista();
+  return comCarregando(telaLista);
 }
 window.addEventListener('hashchange', rotear);
 window.addEventListener('click', e => {
