@@ -499,6 +499,23 @@ function ligarAbas() {
     if (!jaAberta) { const topo = $('.abas').getBoundingClientRect().top; if (topo < 0 || topo > innerHeight / 2) $('.conteudo').scrollIntoView({ block: 'start' }); }
   };
 }
+// Cards recolhíveis: clicar no título recolhe/expande. Começam abertos; lembra os fechados (por contexto + título).
+function ligarRecolhiveis(ctx) {
+  const fechados = lerPref('fp-rec', {});
+  for (const card of app.querySelectorAll('.card')) {
+    if (card.closest('.lista-topo') || card.id === 'topo-ficha' || card.classList.contains('card-dobra')) continue;
+    const cab = card.querySelector(':scope > h1, :scope > h2');
+    if (!cab) continue;
+    card.classList.add('recolhivel'); cab.classList.add('rec-cab');
+    const chave = ctx + '|' + cab.textContent.trim().replace(/\s+/g, ' ');
+    if (fechados[chave]) card.classList.add('recolhido');
+    cab.addEventListener('click', e => {
+      if (e.target.closest('a, button, input, select, textarea, label')) return;
+      const rec = card.classList.toggle('recolhido');
+      const f = lerPref('fp-rec', {}); if (rec) f[chave] = 1; else delete f[chave]; gravarPref('fp-rec', f);
+    });
+  }
+}
 // Card do topo fixado: fica preso no alto, compacto (só nome e indicadores).
 function ligarFixar() {
   const card = $('#topo-ficha'), b = $('#b-fixar');
@@ -784,8 +801,10 @@ function telaFicha(cpf) {
     ['vinc', 'Vínculos', r ? vinculos(c.rel).length : '', cardGrafo(c.cpf)],
     ['ocorr', 'Ocorrências', r ? r.ocorrencias.length : '', !r ? semRel : card('Fugas, roubos/furtos e óbitos', tabela(r.ocorrencias))
       + card('Óbitos e idade da ave', tabelaObitos(obitosDaBase().filter(o => o.cpf === c.cpf)))],
-    ['hist', 'Histórico', r ? (c.rel.secoes['Histórico de Operações'] || []).length : '', !r ? semRel : card('Histórico de operações', tabela(c.rel.secoes['Histórico de Operações']))
-      + card('Outras seções do relatório', outras.map(([t, rows]) => `<details><summary>${esc(t)} <span class="muted peq">(${rows.length})</span></summary>${tabela(rows)}</details>`).join(''))],
+    ['hist', 'Histórico', r ? (c.rel.secoes['Histórico de Operações'] || []).length : '',
+      (c.obs ? card('Observações', `<p style="white-space:pre-wrap">${esc(c.obs)}</p><p class="muted peq">Editável na coluna à esquerda.</p>`) : '')
+      + (!r ? (c.obs ? '' : semRel) : card('Histórico de operações', tabela(c.rel.secoes['Histórico de Operações']))
+      + card('Outras seções do relatório', outras.map(([t, rows]) => `<details><summary>${esc(t)} <span class="muted peq">(${rows.length})</span></summary>${tabela(rows)}</details>`).join('')))],
   ];
   const abaAtual = ABAS.some(a => a[0] === lerPref('fp-aba', '')) ? lerPref('fp-aba', '') : 'verif';
   const abaAberta = lerPref('fp-aba-aberta', false); // padrão: abas recolhidas
@@ -819,6 +838,9 @@ function telaFicha(cpf) {
       <details class="end-atual" ${c.enderecoAtual ? '' : ''}><summary class="peq muted">${c.enderecoAtual ? 'Editar endereço atual' : 'Informar endereço atual (mudança)'}</summary>
         <input id="end-atual" value="${esc(c.enderecoAtual || '')}" placeholder="Rua, nº, bairro, cidade">
         <span id="end-atual-m" class="peq muted"></span></details>
+      <label for="obs-campo" style="margin-top:8px">Observações de campo</label>
+      <textarea id="obs-campo" rows="3" placeholder="Constatações e observações da fiscalização">${esc(c.obs || '')}</textarea>
+      <span id="obs-campo-m" class="peq muted"></span>
       ${c.rel?.criador.email ? `<p class="peq"><span class="muted">E-mail no SISPASS:</span> ${esc(c.rel.criador.email)}</p>` : ''}
       <div class="linha">
         <a class="btn sec" target="_blank" rel="noopener noreferrer" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(end)}">Abrir no mapa</a>
@@ -841,6 +863,7 @@ function telaFicha(cpf) {
   const recarregar = () => { const y = window.scrollY; telaFicha(cpf); window.scrollTo(0, y); };
   ligarAbas();
   ligarFixar();
+  ligarRecolhiveis('ficha');
   ligarMensagens(c, e);
   const bVinc = $('.aba-b[data-aba="vinc"]'); // o grafo só monta com a aba visível (precisa de tamanho)
   if (bVinc) { bVinc.addEventListener('click', () => { if (!$('.aba[data-aba="vinc"]').hidden) ligarGrafoFicha(c.cpf); }); if (!$('.aba[data-aba="vinc"]').hidden) ligarGrafoFicha(c.cpf); }
@@ -882,6 +905,12 @@ function telaFicha(cpf) {
     if (novo === (c.enderecoAtual || '')) return;
     c.enderecoAtual = novo || undefined; sujos.add(c.cpf); await salvar();
     const y = window.scrollY; telaFicha(cpf); window.scrollTo(0, y);
+  };
+  if ($('#obs-campo')) $('#obs-campo').onchange = async ev => {
+    const novo = ev.target.value.trim();
+    if (novo === (c.obs || '')) return;
+    c.obs = novo || undefined; sujos.add(c.cpf); await salvar();
+    const y = window.scrollY; telaFicha(cpf); window.scrollTo(0, y); // reflete na aba Histórico
   };
   $('#b-vistoria').onclick = async () => {
     const v = { id: Date.now().toString(36), data: $('#v-data').value || hojeIso(), resultado: $('#v-res').value,
@@ -1163,6 +1192,7 @@ function telaPainel() {
       ${barras(meses.map(m => ({ rotulo: `${m.slice(5)}/${m.slice(0, 4)}`, valor: vistMes[m] })))}</div>
     </div></div>`;
   document.documentElement.style.setProperty('--topo-h', $('.topo').offsetHeight + 'px');
+  ligarRecolhiveis('painel');
 }
 
 // ---------- importação ----------
@@ -1217,12 +1247,12 @@ function exportarPlanilha() {
     const e = estado(c), r = e.r;
     return {
       CPF: fmtCpf(c.cpf), Registro: String(c.registro), Nome: c.nome, Sexo: (e.sexo.valor === 'F' ? 'Feminino' : 'Masculino') + (e.sexo.estimado ? ' (estimado)' : ''),
-      Cidade: c.cidade, Bairro: c.bairro, 'Endereço': c.endereco, 'Endereço atual': c.enderecoAtual || '', 'E-mail SISPASS': c.rel?.criador.email || '',
+      Cidade: c.cidade, Bairro: c.bairro, 'Endereço': c.endereco, 'Endereço atual': c.enderecoAtual || '', 'Observações de campo': c.obs || '', 'E-mail SISPASS': c.rel?.criador.email || '',
       CTF: e.ctf?.status || '', [`Licença ${Normas.periodo(new Date()).rotulo}`]: e.lic?.status || '', 'Aves ameaçadas': e.ameacadas.length,
       'Última vistoria': e.ultima?.data || '', Resultado: e.ultima ? RESULTADO[e.ultima.resultado] : '', 'Fiscalizado no período': e.fiscalizado ? 'Sim' : 'Não',
       'Pendências abertas': e.abertos.length, 'Relatório importado em': c.rel?.importadoEm || '', 'Aves ativas': r ? r.ativas : '', 'Total de aves': r ? r.total : '',
       'Fugas/roubos/óbitos': r ? r.ocorrencias.length : '', 'Última operação': r?.ultimaOperacao || '',
-      _estado: JSON.stringify({ sexo: c.sexo, enderecoAtual: c.enderecoAtual, vistorias: c.vistorias, acoes: c.acoes, notas: c.notas }),
+      _estado: JSON.stringify({ sexo: c.sexo, enderecoAtual: c.enderecoAtual, obs: c.obs, vistorias: c.vistorias, acoes: c.acoes, notas: c.notas }),
     };
   });
   const comRel = todos.filter(c => c.rel);
@@ -1299,6 +1329,7 @@ function mesclar(outro) {
     for (const [k, v] of Object.entries(b.acoes || {})) if (!a.acoes?.[k] || v.data > a.acoes[k].data) (a.acoes ||= {})[k] = v;
     if (b.sexo && !a.sexo) a.sexo = b.sexo;
     if (b.enderecoAtual && !a.enderecoAtual) a.enderecoAtual = b.enderecoAtual;
+    if (b.obs && !a.obs) a.obs = b.obs;
     if (b.notas && !a.notas) a.notas = b.notas;
     if (JSON.stringify(a) !== antes) { sujos.add(cpf); n++; }
   }
@@ -1453,32 +1484,33 @@ function mostrarCarregando(on) {
   if (on) { if (!el) { el = document.createElement('div'); el.id = 'carregando'; el.innerHTML = PASSARINHO + '<span>Carregando…</span>'; document.body.append(el); } el.classList.add('ativo'); }
   else if (el) el.classList.remove('ativo');
 }
-// Mostra o passarinho, deixa o navegador pintá-lo e só então roda o render pesado.
-function comCarregando(render) {
-  mostrarCarregando(true);
-  requestAnimationFrame(() => requestAnimationFrame(() => { try { render(); } finally { mostrarCarregando(false); } }));
-}
+let navToken = 0;
 function rotear() {
   if (!db) return telaSenha();
+  const token = ++navToken; // cancela o loader de uma navegação anterior
   marcarNav();
   const h = location.hash;
-  if (h.startsWith('#/c/')) return telaFicha(h.slice(4));
-  if (h === '#/dados') return telaDados();
-  if (h === '#/idades') return comCarregando(telaIdades);
-  if (h === '#/pendencias') return comCarregando(telaPendencias);
-  if (h === '#/vinculos') return comCarregando(telaVinculos);
-  if (h === '#/painel') return comCarregando(telaPainel);
-  if (h === '#/graficos') return comCarregando(telaGraficos);
-  if (h.startsWith('#/grafo/')) return telaGrafo(h.slice(8));
-  if (h === '#/abordagens') return telaAbordagens();
-  if (h.startsWith('#/ab/')) return telaAbordagem(h.slice(5));
+  // Tela pesada: mostra o passarinho, deixa o navegador pintá-lo e só então renderiza.
+  const pesada = render => { mostrarCarregando(true); requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (token !== navToken) return; try { render(); } finally { if (token === navToken) mostrarCarregando(false); } })); };
+  const direta = render => { mostrarCarregando(false); render(); };
+  if (h.startsWith('#/c/')) return direta(() => telaFicha(h.slice(4)));
+  if (h === '#/dados') return direta(telaDados);
+  if (h === '#/idades') return pesada(telaIdades);
+  if (h === '#/pendencias') return pesada(telaPendencias);
+  if (h === '#/vinculos') return pesada(telaVinculos);
+  if (h === '#/painel') return pesada(telaPainel);
+  if (h === '#/graficos') return pesada(telaGraficos);
+  if (h.startsWith('#/grafo/')) return direta(() => telaGrafo(h.slice(8)));
+  if (h === '#/abordagens') return direta(telaAbordagens);
+  if (h.startsWith('#/ab/')) return direta(() => telaAbordagem(h.slice(5)));
   if (h.startsWith('#/?')) { // atalho vindo do painel: #/?f=filtro&cidade=X
     const q = new URLSearchParams(h.slice(3));
     filtro.status = q.get('f') || ''; filtro.cidade = q.get('cidade') || ''; filtro.q = q.get('q') || ''; rolagem = 0;
-    return comCarregando(telaLista);
+    return pesada(telaLista);
   }
-  if (h.startsWith('#/anilha/')) return telaAnilha(decodeURIComponent(h.slice(9)));
-  return comCarregando(telaLista);
+  if (h.startsWith('#/anilha/')) return direta(() => telaAnilha(decodeURIComponent(h.slice(9))));
+  return pesada(telaLista);
 }
 window.addEventListener('hashchange', rotear);
 window.addEventListener('click', e => {

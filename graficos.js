@@ -117,6 +117,7 @@ function telaGraficos() {
       <p class="muted peq">Digite o nome ou o CPF e tecle Enter. Ou abra a ficha de um criador e use a aba Vínculos.</p></div>
     </div></div>`;
   document.documentElement.style.setProperty('--topo-h', $('.topo').offsetHeight + 'px');
+  ligarRecolhiveis('graficos');
   for (const el of document.querySelectorAll('[data-ms]')) el.onchange = () => {
     const id = el.dataset.ms, v = el.value, arr = filtroGraf[id];
     if (el.checked) arr.push(v); else arr.splice(arr.indexOf(v), 1);

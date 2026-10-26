@@ -194,3 +194,10 @@ nav a.ativo:hover { background: var(--pri); color: var(--pri-txt); }
 @keyframes cg-voar { 0%,100% { transform: translateY(5px) } 50% { transform: translateY(-7px) } }
 @keyframes cg-asa { 0%,100% { transform: rotate(0deg) } 50% { transform: rotate(32deg) } }
 @media (prefers-reduced-motion: reduce) { #carregando svg, #carregando .asa { animation: none; } }
+
+/* Cards recolhíveis */
+.card.recolhivel > .rec-cab { cursor: pointer; position: relative; padding-right: 22px; }
+.card.recolhivel > .rec-cab::after { content: '▾'; position: absolute; right: 2px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: .85em; }
+.card.recolhivel.recolhido > .rec-cab::after { content: '▸'; }
+.card.recolhivel.recolhido > :not(.rec-cab) { display: none; }
+.card.recolhivel.recolhido { padding-bottom: 14px; }
