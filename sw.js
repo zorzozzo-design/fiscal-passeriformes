@@ -1,5 +1,5 @@
-const CACHE = 'fp-v39';
-const ARQUIVOS = ['./', 'index.html', 'app.js', 'parser.js', 'normas.js', 'docs.js', 'graficos.js', 'abordagens.js', 'style.css', 'manifest.webmanifest',
+const CACHE = 'fp-v40';
+const ARQUIVOS = ['./', 'index.html', 'app.js', 'parser.js', 'normas.js', 'docs.js', 'graficos.js', 'torneios.js', 'abordagens.js', 'style.css', 'manifest.webmanifest',
   'vendor/xlsx.mini.min.js', 'vendor/chart.umd.js', 'vendor/cytoscape.min.js', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(ARQUIVOS)).then(() => self.skipWaiting())));

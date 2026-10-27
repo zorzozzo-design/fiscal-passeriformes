@@ -1020,6 +1020,7 @@ function secaoAtual(h) {
   if (h === '#/pendencias') return '#/pendencias';
   if (h === '#/painel') return '#/painel';
   if (h === '#/graficos' || h.startsWith('#/grafo/')) return '#/graficos';
+  if (h === '#/torneios') return '#/torneios';
   if (h === '#/abordagens' || h.startsWith('#/ab/')) return '#/abordagens';
   if (h === '#/' || h.startsWith('#/?') || h.startsWith('#/c/') || h.startsWith('#/anilha/')) return '#/';
   return '';
@@ -1580,6 +1581,7 @@ function rotear() {
   if (h === '#/vinculos') return pesada(telaVinculos);
   if (h === '#/painel') return pesada(telaPainel);
   if (h === '#/graficos') return pesada(telaGraficos);
+  if (h === '#/torneios') return pesada(telaTorneios);
   if (h.startsWith('#/grafo/')) return direta(() => telaGrafo(h.slice(8)));
   if (h === '#/abordagens') return direta(telaAbordagens);
   if (h.startsWith('#/ab/')) return direta(() => telaAbordagem(h.slice(5)));
